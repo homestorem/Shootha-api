@@ -1,0 +1,410 @@
+REPLIT AI MASTER BUILD SCRIPT – V2
+Project: Shoot’ha – Advanced Sports Booking Ecosystem
+
+Production-Ready | Scalable | Modular | High-Engagement
+
+🧠 UI/UX ADVANCED ENHANCEMENTS
+🎯 1-Click Rebook System
+Description:
+
+Display user’s last booking on Home page in a smart card:
+
+Venue name
+
+Field size
+
+Day & Time
+
+Weather forecast preview
+
+Price
+
+Button:
+🟢 “إعادة الحجز للأسبوع القادم”
+
+Logic:
+
+Fetch last completed booking
+
+Clone booking
+
+Set date +7 days
+
+Check availability
+
+If available → Auto confirm
+
+If not → Show closest alternative time
+
+Backend:
+
+POST /bookings/rebook
+🩻 Skeleton Loading System
+
+Replace all spinners with:
+
+Animated shimmer skeleton components
+
+Pre-render content structure
+
+Avoid layout shift
+
+Frontend:
+
+Create reusable <SkeletonCard />
+
+Use during data fetching
+
+🎨 Visual Hierarchy Rules
+
+Primary CTA (Complete Booking) → Neon Green #2ECC71 ONLY
+
+Secondary info → #3A3A3A
+
+Disabled buttons → #555
+
+Prices bold
+
+Field name larger than description
+
+Payment button elevated
+
+🧩 COMPLEMENTARY CORE FEATURES
+⏳ WAITLIST SYSTEM
+Flow:
+
+If slot is full:
+
+Button:
+“🔔 أعلمني عند الإلغاء”
+
+Database:
+
+Create table:
+
+Waitlist:
+
+id
+
+user_id
+
+venue_id
+
+date
+
+time
+
+notified (boolean)
+
+Logic:
+
+When booking is cancelled:
+
+Find waitlist users
+
+Send push notification
+
+First to confirm wins slot
+
+Protects venue revenue.
+
+💸 SPLIT BILL TRACKER (Captain Tool)
+
+Available inside active booking details.
+
+Display:
+
+Player list with:
+☑ Paid
+☐ Not Paid
+
+Store locally (no backend needed initially)
+
+Future upgrade:
+Add digital wallet integration.
+
+🌦 WEATHER API INTEGRATION
+
+Use:
+OpenWeatherMap API (free tier)
+
+On booking card show:
+
+Temperature
+
+Rain probability
+
+Weather icon
+
+Backend:
+
+GET /weather?lat=&lon=&date=
+
+Cache results to reduce API calls.
+
+⭐ ENGAGEMENT SYSTEMS
+🌟 RATING & REVIEW SYSTEM
+
+After booking ends:
+Send push notification:
+
+“قيّم تجربتك”
+
+Rating fields:
+
+Cleanliness (1–5)
+
+Grass Quality (1–5)
+
+Lighting (1–5)
+
+Comment (optional)
+
+Database:
+
+Reviews:
+
+id
+
+booking_id
+
+venue_id
+
+user_id
+
+cleanliness
+
+grass_quality
+
+lighting
+
+comment
+
+Calculate average rating per venue.
+
+🗺 MAP VIEW SEARCH MODE
+
+Add toggle:
+List | Map
+
+Map features:
+
+Marker clustering
+
+Price preview bubble
+
+Tap → Open venue card
+
+Use:
+Google Maps or Leaflet (OpenStreetMap)
+
+🆘 “لاعب نقص” (Find Missing Player Feature)
+
+Captain can post:
+
+Position needed
+
+Skill level
+
+Time remaining
+
+Nearby available players receive push:
+
+“محتاجين حارس الآن في ملعب X”
+
+Database:
+
+PlayerRequests:
+
+id
+
+booking_id
+
+position
+
+created_at
+
+expires_at
+
+Auto expire after match start.
+
+🔥 VISUAL TRIGGERS (Psychological Engagement)
+🔴 LIVE MATCH COUNTER
+
+On Home:
+
+“🔥 27 مباراة جارية الآن في الموصل”
+
+Backend:
+Count active bookings where current time inside slot.
+
+Cache every 60 seconds.
+
+📸 360° FIELD IMAGES
+
+Allow venue owner to upload:
+
+Panorama image (equirectangular format)
+
+Frontend:
+Use:
+react-photo-sphere-viewer
+
+Fallback:
+Normal gallery slider.
+
+📉 SMART DEAD-HOUR DISCOUNTS
+
+Owner dashboard:
+
+Suggest:
+“Hours with low demand detected”
+
+Auto discount options:
+
+10%
+
+20%
+
+Custom
+
+Database update:
+dynamic_price field
+
+Algorithm:
+Track:
+
+Booking frequency by hour
+
+Suggest lowest occupancy hours
+
+📢 ADVERTISEMENT SYSTEM
+
+Homepage banner slider:
+
+Gym ads
+
+Restaurants
+
+Energy drinks
+
+Database:
+
+Ads:
+
+id
+
+title
+
+image_url
+
+redirect_url
+
+active
+
+start_date
+
+end_date
+
+Admin panel:
+CRUD ads.
+
+Auto rotation every 5 seconds.
+
+🔒 SYSTEM UPGRADES
+Role Protection Middleware
+
+Player
+
+Owner
+
+Admin
+
+Guest
+
+Device Ban System
+
+If no_show_count >= 2
+→ Block device_id permanently
+
+Index Optimization
+
+Add indexes:
+
+Users(phone)
+Venues(venue_name)
+Bookings(date, time)
+Bookings(user_id)
+Reviews(venue_id)
+
+🧠 ARCHITECTURE IMPROVEMENTS
+Add New Folders
+
+/client/components/ui
+/client/components/skeleton
+/client/components/maps
+/client/hooks
+/server/services
+/server/controllers
+/server/routes
+/server/jobs
+/server/notifications
+/server/analytics
+
+⚡ PERFORMANCE OPTIMIZATION
+
+Lazy loading components
+
+Image compression
+
+API response caching
+
+Debounced search
+
+Pagination on venue list
+
+Server-side rendering (Next.js)
+
+🔔 PUSH NOTIFICATIONS SYSTEM
+
+Use:
+Firebase Cloud Messaging
+
+Triggers:
+
+Booking reminder
+
+Waitlist available
+
+Rating request
+
+Player needed
+
+Promotions
+
+📊 FUTURE EXPANSION READY
+
+Prepare architecture for:
+
+Online payments (Stripe)
+
+Wallet system
+
+Tournament module
+
+Subscription system for venues
+
+Loyalty points for players
+
+🏁 FINAL STRUCTURE SUMMARY
+
+✔ Dark mode default
+✔ RTL Arabic default
+✔ Multi-language
+✔ Smart booking
+✔ AI-driven pricing suggestions
+✔ Engagement hooks
+✔ Revenue protection
+✔ Scalable backend
+✔ Clean modular architecture
+✔ Production ready
