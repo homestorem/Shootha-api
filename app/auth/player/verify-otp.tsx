@@ -24,7 +24,7 @@ export default function PlayerVerifyOtpScreen() {
   const { login, register, sendOtp } = useAuth();
   const params = useLocalSearchParams<{
     phone: string;
-    mode: "login" | "register";
+    mode: "login" | "register" | "reset-password";
     role?: string;
     devOtp?: string;
   }>();
@@ -68,7 +68,13 @@ export default function PlayerVerifyOtpScreen() {
     setError("");
     setIsLoading(true);
     try {
-      if (params.mode === "register") {
+      if (params.mode === "reset-password") {
+        router.replace({
+          pathname: "/auth/player/new-password",
+          params: { phone: params.phone, otp },
+        });
+        return;
+      } else if (params.mode === "register") {
         const pendingRaw = await AsyncStorage.getItem(PENDING_REG_KEY);
         const pending: PendingPlayerData | null = pendingRaw ? JSON.parse(pendingRaw) : null;
 

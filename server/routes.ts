@@ -197,6 +197,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { phone, otp, newPassword } = req.body as {
+        phone: string;
+        otp: string;
+        newPassword: string;
+      };
+      if (!phone || !otp || !newPassword) {
+        return res.status(400).json({ message: "بيانات ناقصة" });
+      }
+      if (newPassword.length < 6) {
+        return res.status(400).json({ message: "كلمة المرور يجب أن تكون 6 أحرف على الأقل" });
+      }
+      const otpValid = await storage.verifyOtp(phone, otp);
+      if (!otpValid) {
+        return res.status(400).json({ message: "رمز التحقق غير صحيح أو منتهي الصلاحية" });
+      }
+      const user = await storage.getAuthUserByPhone(phone);
+      if (!user) {
+        return res.status(404).json({ message: "المستخدم غير موجود" });
+      }
+      const bcrypt = await import("bcryptjs");
+      const passwordHash = await bcrypt.hash(newPassword, 10);
+      await storage.updateAuthUser(user.id, { passwordHash });
+      return res.json({ message: "تم تغيير كلمة المرور بنجاح" });
+    } catch (e: any) {
+      return res.status(500).json({ message: e?.message ?? "خطأ في الخادم" });
+    }
+  });
+
   app.patch("/api/user/profile", authMiddleware, async (req, res) => {
     try {
       const userId = (req as any).userId;

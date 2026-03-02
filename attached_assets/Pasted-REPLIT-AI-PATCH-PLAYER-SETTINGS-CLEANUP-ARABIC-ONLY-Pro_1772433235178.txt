@@ -1,0 +1,150 @@
+REPLIT AI PATCH — PLAYER SETTINGS CLEANUP (ARABIC ONLY)
+
+Project: Shoot’ha
+Modify Player Settings Page only.
+Do NOT change owner or admin settings.
+
+Apply the following UI and logic updates.
+
+🌍 1️⃣ MAKE SETTINGS FULLY ARABIC
+
+Convert ALL text inside Player Settings page to Arabic only.
+
+Remove any English labels or mixed language text.
+
+Ensure RTL layout remains active.
+
+💳 2️⃣ PAYMENT SECTION
+
+Keep section title:
+
+"الدفع"
+
+But change content to:
+
+Display centered text:
+
+"قريباً"
+
+Disable all payment actions or buttons.
+
+No backend connection required.
+
+💬 3️⃣ SUPPORT SECTION
+
+Rename section to:
+
+"المساعدة والدعم"
+
+Remove:
+
+Email support
+
+Contact form
+
+Any extra options
+
+Keep ONLY:
+
+✅ WhatsApp support button
+
+Button behavior:
+
+Opens WhatsApp chat link.
+
+👤 4️⃣ EDIT PROFILE LOCATION
+
+Edit Profile already exists inside Profile page.
+
+Therefore:
+
+REMOVE "تعديل الملف الشخصي" from Settings list بالكامل.
+
+Do not delete feature — only remove duplicate entry from settings menu.
+
+🔐 5️⃣ REMOVE PRIVACY & SECURITY SECTION
+
+Delete completely:
+
+"الخصوصية"
+
+"الأمان"
+
+Any related submenu
+
+Remove UI + routes connected to it.
+
+🔑 6️⃣ ADD "FORGOT PASSWORD" TO LOGIN PAGE
+
+Modify Login screen:
+
+Add link under password field:
+
+"نسيت كلمة المرور؟"
+
+Flow:
+
+User enters phone number
+
+Send OTP
+
+Verify OTP
+
+Allow new password creation
+
+Update password securely
+
+Do not affect registration logic.
+
+ℹ️ 7️⃣ ABOUT APP SECTION
+
+Update "عن التطبيق" content with this Arabic description:
+
+Shoot’ha
+
+تطبيق Shoot’ha هو منصة ذكية لحجز الملاعب الرياضية بسهولة وسرعة.
+يتيح التطبيق للاعبين البحث عن أقرب الملاعب، معرفة الأوقات المتاحة، والحجز مباشرة بدون اتصالات أو انتظار.
+
+كما يساعد أصحاب الملاعب على إدارة الحجوزات وتنظيم الأوقات ومعرفة الدخل والإشغال بشكل واضح ومنظم، ليجعل عملية الحجز أسهل للجميع ويوفر الوقت والجهد.
+
+هدفنا هو تبسيط تجربة حجز الملاعب وربط اللاعبين بالملاعب القريبة منهم بضغطة واحدة.
+
+💰 8️⃣ REMOVE EXPENSES SECTION
+
+Delete completely:
+
+"المصاريف"
+
+Remove:
+
+UI
+
+menu item
+
+related components
+
+🎨 UI RULES
+
+Dark mode compatible
+
+Arabic fonts consistent
+
+Keep neon green only for primary actions
+
+Maintain spacing and alignment
+
+No empty menu gaps after removal
+
+🚀 FINAL INSTRUCTION
+
+Clean and simplify Player Settings page according to instructions without affecting:
+
+Owner dashboard
+
+Admin dashboard
+
+Authentication system
+
+Booking system
+
+Ensure smooth navigation after removing sections.

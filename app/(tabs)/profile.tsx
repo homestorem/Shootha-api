@@ -183,6 +183,45 @@ function DeleteAccountModal({
   );
 }
 
+function AboutModal({
+  visible,
+  onClose,
+}: {
+  visible: boolean;
+  onClose: () => void;
+}) {
+  const { colors } = useTheme();
+  const { t } = useLang();
+  return (
+    <Modal visible={visible} transparent animationType="slide">
+      <Pressable style={modalStyles.overlay} onPress={onClose}>
+        <Pressable
+          style={[modalStyles.sheet, { backgroundColor: colors.card }]}
+          onPress={() => {}}
+        >
+          <View style={[modalStyles.handle, { backgroundColor: colors.border }]} />
+          <View style={styles.aboutLogoRow}>
+            <View style={styles.aboutLogoCircle}>
+              <Ionicons name="football" size={28} color={Colors.primary} />
+            </View>
+            <Text style={[styles.aboutLogoTitle, { color: colors.text }]}>Shoot'ha</Text>
+          </View>
+          <Text style={[styles.aboutBody, { color: colors.textSecondary }]}>
+            {t("aboutAppText")}
+          </Text>
+          <Text style={[styles.aboutVersion, { color: colors.textTertiary }]}>v1.0.0</Text>
+          <Pressable
+            style={[styles.aboutCloseBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            onPress={onClose}
+          >
+            <Text style={[styles.aboutCloseBtnText, { color: colors.text }]}>{t("cancel")}</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 function SettingRow({
   icon,
   label,
@@ -281,15 +320,13 @@ export default function ProfileScreen() {
   const [showGuestModal, setShowGuestModal] = useState(false);
   const [showLangPicker, setShowLangPicker] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : 0;
 
   const completedCount = bookings.filter((b) => b.status === "completed").length;
   const upcomingCount = bookings.filter((b) => b.status === "upcoming").length;
-  const totalSpent = bookings
-    .filter((b) => b.status === "completed")
-    .reduce((sum, b) => sum + b.price, 0);
 
   const handleLogout = () => {
     Alert.alert(t("logoutConfirmTitle"), t("logoutConfirmMsg"), [
@@ -405,11 +442,6 @@ export default function ProfileScreen() {
           <View style={styles.statsRow}>
             <StatCard label={t("games")} value={completedCount} icon="football" />
             <StatCard label={t("upcoming")} value={upcomingCount} icon="calendar" />
-            <StatCard
-              label={t("expenses")}
-              value={`${(totalSpent / 1000).toFixed(0)}k`}
-              icon="wallet"
-            />
             <StatCard label={t("noShow")} value="0" icon="close-circle" />
           </View>
         )}
@@ -454,26 +486,32 @@ export default function ProfileScreen() {
           <SettingRow icon="location-outline" label={t("city")} value={t("mosul")} />
         </View>
 
+        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>{t("payment")}</Text>
+        <View style={[styles.settingsGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.comingSoonRow}>
+            <View style={[styles.settingIcon, { backgroundColor: colors.surface }]}>
+              <Ionicons name="card-outline" size={18} color={colors.textSecondary} />
+            </View>
+            <Text style={[styles.settingLabel, { color: colors.text }]}>{t("paymentMethods")}</Text>
+            <View style={styles.comingSoonBadge}>
+              <Text style={styles.comingSoonText}>قريباً</Text>
+            </View>
+          </View>
+        </View>
+
         {!isGuest && (
           <>
-            <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>{t("accountSection")}</Text>
+            <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>{t("helpSupport")}</Text>
             <View style={[styles.settingsGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <SettingRow
-                icon="pencil-outline"
-                label={t("editProfile")}
-                onPress={() => router.push("/profile/edit")}
-              />
-              <SettingRow icon="card-outline" label={t("paymentMethods")} onPress={() => {}} />
-              <SettingRow icon="shield-outline" label={t("privacySecurity")} onPress={() => {}} />
-              <SettingRow
-                icon="help-circle-outline"
-                label={t("helpSupport")}
+                icon="logo-whatsapp"
+                label={t("whatsapp")}
                 onPress={() => router.push("/profile/support")}
               />
               <SettingRow
                 icon="information-circle-outline"
                 label={t("aboutApp")}
-                value="v1.0.0"
+                onPress={() => setShowAbout(true)}
               />
             </View>
 
@@ -507,6 +545,7 @@ export default function ProfileScreen() {
       <GuestModal visible={showGuestModal} onClose={() => setShowGuestModal(false)} />
       <LanguagePickerModal visible={showLangPicker} onClose={() => setShowLangPicker(false)} />
       <DeleteAccountModal visible={showDeleteModal} onClose={() => setShowDeleteModal(false)} />
+      <AboutModal visible={showAbout} onClose={() => setShowAbout(false)} />
     </View>
   );
 }
@@ -607,8 +646,53 @@ const styles = StyleSheet.create({
   settingLabel: { flex: 1, fontSize: 14, fontFamily: "Cairo_400Regular" },
   settingRight: { flexDirection: "row", alignItems: "center", gap: 6 },
   settingValue: { fontSize: 13, fontFamily: "Cairo_400Regular" },
+  comingSoonRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    gap: 12,
+  },
+  comingSoonBadge: {
+    backgroundColor: "rgba(46,204,113,0.12)",
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(46,204,113,0.25)",
+  },
+  comingSoonText: { color: Colors.primary, fontSize: 12, fontFamily: "Cairo_600SemiBold" },
   footer: { alignItems: "center", paddingVertical: 16 },
   footerText: { fontSize: 12, fontFamily: "Cairo_400Regular" },
+  aboutLogoRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16, justifyContent: "center" },
+  aboutLogoCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "rgba(46,204,113,0.12)",
+    borderWidth: 2,
+    borderColor: "rgba(46,204,113,0.3)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  aboutLogoTitle: { fontSize: 22, fontFamily: "Cairo_700Bold" },
+  aboutBody: {
+    fontSize: 14,
+    fontFamily: "Cairo_400Regular",
+    lineHeight: 24,
+    textAlign: "right",
+    marginBottom: 16,
+  },
+  aboutVersion: { fontSize: 12, fontFamily: "Cairo_400Regular", marginBottom: 20 },
+  aboutCloseBtn: {
+    width: "100%",
+    height: 48,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  aboutCloseBtnText: { fontSize: 15, fontFamily: "Cairo_600SemiBold" },
 });
 
 const modalStyles = StyleSheet.create({

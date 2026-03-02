@@ -16,7 +16,7 @@ import { Colors } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { AuthInput } from "@/components/AuthInput";
 
-export default function PlayerLoginScreen() {
+export default function ForgotPasswordScreen() {
   const insets = useSafeAreaInsets();
   const { sendOtp } = useAuth();
   const [phone, setPhone] = useState("");
@@ -31,7 +31,7 @@ export default function PlayerLoginScreen() {
     return "";
   };
 
-  const handleSendOtp = async () => {
+  const handleSend = async () => {
     const err = validatePhone(phone);
     if (err) { setPhoneError(err); return; }
     setPhoneError("");
@@ -41,7 +41,11 @@ export default function PlayerLoginScreen() {
       const res = await sendOtp(phone.trim());
       router.push({
         pathname: "/auth/player/verify-otp",
-        params: { phone: phone.trim(), mode: "login", devOtp: res.devOtp ?? "" },
+        params: {
+          phone: phone.trim(),
+          mode: "reset-password",
+          devOtp: res.devOtp ?? "",
+        },
       });
     } catch (e: any) {
       const msg = e?.message ?? "حدث خطأ، حاول مجدداً";
@@ -66,10 +70,10 @@ export default function PlayerLoginScreen() {
       >
         <View style={styles.heroSection}>
           <View style={styles.roleIcon}>
-            <Ionicons name="football" size={32} color={Colors.primary} />
+            <Ionicons name="key-outline" size={32} color={Colors.primary} />
           </View>
-          <Text style={styles.title}>تسجيل دخول اللاعب</Text>
-          <Text style={styles.subtitle}>أدخل رقم هاتفك وسنرسل لك رمز التحقق</Text>
+          <Text style={styles.title}>إعادة تعيين كلمة المرور</Text>
+          <Text style={styles.subtitle}>أدخل رقم هاتفك وسنرسل لك رمز التحقق لإعادة تعيين كلمة المرور</Text>
         </View>
 
         <View style={styles.form}>
@@ -85,11 +89,11 @@ export default function PlayerLoginScreen() {
 
           <Pressable
             style={[styles.submitBtn, isLoading && styles.submitBtnDisabled]}
-            onPress={handleSendOtp}
+            onPress={handleSend}
             disabled={isLoading}
           >
             <Ionicons
-              name={isLoading ? "hourglass-outline" : "arrow-back-circle"}
+              name={isLoading ? "hourglass-outline" : "send"}
               size={20}
               color="#000"
             />
@@ -99,17 +103,10 @@ export default function PlayerLoginScreen() {
           </Pressable>
         </View>
 
-        <Pressable
-          style={styles.forgotRow}
-          onPress={() => router.push("/auth/player/forgot-password")}
-        >
-          <Text style={styles.forgotLink}>نسيت كلمة المرور؟</Text>
-        </Pressable>
-
-        <View style={styles.registerRow}>
-          <Text style={styles.registerHint}>ليس لديك حساب؟</Text>
-          <Pressable onPress={() => router.replace("/auth/player/register")}>
-            <Text style={styles.registerLink}>إنشاء حساب جديد</Text>
+        <View style={styles.loginRow}>
+          <Text style={styles.loginHint}>تذكرت كلمة المرور؟</Text>
+          <Pressable onPress={() => router.back()}>
+            <Text style={styles.loginLink}>تسجيل الدخول</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -144,9 +141,7 @@ const styles = StyleSheet.create({
   },
   submitBtnDisabled: { backgroundColor: Colors.disabled },
   submitBtnText: { color: "#000", fontSize: 15, fontFamily: "Cairo_700Bold" },
-  forgotRow: { alignItems: "center", marginBottom: 8 },
-  forgotLink: { color: Colors.textSecondary, fontSize: 13, fontFamily: "Cairo_400Regular", textDecorationLine: "underline" },
-  registerRow: { flexDirection: "row", justifyContent: "center", gap: 6, alignItems: "center" },
-  registerHint: { color: Colors.textSecondary, fontSize: 14, fontFamily: "Cairo_400Regular" },
-  registerLink: { color: Colors.primary, fontSize: 14, fontFamily: "Cairo_600SemiBold" },
+  loginRow: { flexDirection: "row", justifyContent: "center", gap: 6, alignItems: "center" },
+  loginHint: { color: Colors.textSecondary, fontSize: 14, fontFamily: "Cairo_400Regular" },
+  loginLink: { color: Colors.primary, fontSize: 14, fontFamily: "Cairo_600SemiBold" },
 });
