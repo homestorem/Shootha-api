@@ -22,7 +22,7 @@ function NativeTabLayout() {
         <Label>الخريطة</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="bookings">
-        <Icon sf={{ default: "calendar", selected: "calendar.fill" }} />
+        <Icon sf={{ default: "calendar", selected: "calendar" }} />
         <Label>حجوزاتي</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
