@@ -1,35 +1,27 @@
 import React from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, Platform } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { Colors } from "@/constants/colors";
-import { MOCK_VENUES } from "@/context/BookingsContext";
+import { Venue } from "@/context/BookingsContext";
 
-export default function MapScreen() {
-  const insets = useSafeAreaInsets();
-  const topPadding = Platform.OS === "web" ? 67 : insets.top;
-  const bottomPadding = Platform.OS === "web" ? 34 : 0;
+interface Props {
+  venues: Venue[];
+  bottomPadding: number;
+}
 
+export default function SearchMapView({ venues, bottomPadding }: Props) {
   return (
-    <View style={[styles.container, { paddingTop: topPadding }]}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>خريطة الملاعب</Text>
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{MOCK_VENUES.length}</Text>
-        </View>
-      </View>
-
+    <View style={styles.container}>
       <View style={styles.webNote}>
         <Ionicons name="phone-portrait-outline" size={16} color={Colors.textSecondary} />
         <Text style={styles.webNoteText}>الخريطة التفاعلية متاحة على التطبيق المحمول</Text>
       </View>
-
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: bottomPadding + 100 }]}
+        contentContainerStyle={[styles.list, { paddingBottom: bottomPadding + 110 }]}
         showsVerticalScrollIndicator={false}
       >
-        {MOCK_VENUES.map(venue => (
+        {venues.map(venue => (
           <Pressable
             key={venue.id}
             style={styles.card}
@@ -57,40 +49,50 @@ export default function MapScreen() {
             </View>
           </Pressable>
         ))}
+        {venues.length === 0 && (
+          <View style={styles.empty}>
+            <Ionicons name="map-outline" size={40} color={Colors.textTertiary} />
+            <Text style={styles.emptyText}>لا توجد ملاعب تطابق الفلتر</Text>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  header: {
-    flexDirection: "row", alignItems: "center",
-    paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12, gap: 10,
-  },
-  headerTitle: { color: Colors.text, fontSize: 26, fontFamily: "Cairo_700Bold" },
-  badge: {
-    backgroundColor: Colors.primary, minWidth: 22, height: 22,
-    borderRadius: 11, alignItems: "center", justifyContent: "center", paddingHorizontal: 6,
-  },
-  badgeText: { color: "#000", fontSize: 12, fontFamily: "Cairo_700Bold" },
+  container: { flex: 1 },
   webNote: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    marginHorizontal: 20, marginBottom: 14,
-    paddingHorizontal: 12, paddingVertical: 10,
-    backgroundColor: Colors.card, borderRadius: 12,
-    borderWidth: 1, borderColor: Colors.border,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 20,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   webNoteText: { color: Colors.textSecondary, fontSize: 12, fontFamily: "Cairo_400Regular" },
-  content: { paddingHorizontal: 20, gap: 10 },
+  list: { paddingHorizontal: 20, gap: 10 },
   card: {
-    flexDirection: "row", alignItems: "center",
-    backgroundColor: Colors.card, borderRadius: 14,
-    borderWidth: 1, borderColor: Colors.border, padding: 14, gap: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 14,
+    gap: 12,
   },
   colorDot: {
-    width: 44, height: 44, borderRadius: 10,
-    alignItems: "center", justifyContent: "center",
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
   info: { flex: 1, gap: 3 },
   nameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
@@ -102,4 +104,6 @@ const styles = StyleSheet.create({
   priceBadge: { alignItems: "center" },
   price: { color: Colors.primary, fontSize: 16, fontFamily: "Cairo_700Bold" },
   priceUnit: { color: Colors.textTertiary, fontSize: 10, fontFamily: "Cairo_400Regular" },
+  empty: { alignItems: "center", paddingVertical: 40, gap: 12 },
+  emptyText: { color: Colors.textTertiary, fontSize: 14, fontFamily: "Cairo_400Regular" },
 });

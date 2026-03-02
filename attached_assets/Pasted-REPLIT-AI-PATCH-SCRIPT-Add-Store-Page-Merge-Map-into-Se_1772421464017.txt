@@ -1,0 +1,192 @@
+REPLIT AI PATCH SCRIPT
+Add Store Page + Merge Map into Search/Explore
+
+Project: Shoot’ha
+Instruction: Add the following features without rebuilding existing systems.
+
+Do NOT overwrite booking, auth, or dashboard logic.
+Only extend the current structure.
+
+🛍 1️⃣ ADD STORE PAGE (Coming Soon Only)
+Create Route
+
+Create new route:
+
+/store
+
+If using bottom navigation, connect Store tab to this route.
+
+Store Page Requirements
+
+Design:
+
+Dark mode background (#121212)
+
+RTL Arabic default
+
+Centered layout
+
+Content:
+
+Large title: "المتجر"
+
+Subtitle under it: "قريباً..."
+
+Small description text:
+"سيتم إطلاق متجر المنتجات الرياضية قريباً داخل تطبيق Shoot’ha"
+
+Add:
+
+Subtle neon green underline below the main title
+
+Soft pulse animation on word "قريباً"
+
+Shopping bag or football store icon above title
+
+No backend logic needed yet.
+
+Prepare structure for future expansion:
+
+Products section placeholder
+
+Cart placeholder state
+
+Commission system placeholder
+
+Do not implement product APIs yet.
+
+🗺 2️⃣ MERGE MAP INTO SEARCH / EXPLORE PAGE
+
+Modify existing Search or Explore page.
+
+Do NOT create separate map page.
+
+New Layout Structure
+
+Top section:
+
+Search bar (by venue name)
+
+Filter button
+
+Toggle switch:
+[ قائمة ] | [ خريطة ]
+
+Default view: List
+
+LIST VIEW
+
+Show:
+
+Venue cards sorted by distance
+
+Name
+
+Price
+
+Field size
+
+Rating
+
+Distance
+
+Available now badge if applicable
+
+MAP VIEW (Integrated)
+
+When user switches to Map:
+
+Display full interactive map inside same page.
+
+Requirements:
+
+Use existing venue coordinates
+
+Show markers for all venues
+
+Each marker must display:
+
+Green tag above marker:
+
+White venue name text
+
+Green background (#2ECC71)
+
+Rounded corners
+
+Soft shadow
+
+When clicking marker:
+
+Open bottom sheet (mobile style) with:
+
+Venue name
+
+Price
+
+Field size
+
+Rating
+
+Distance
+
+Book button
+
+Map Behavior
+
+Use Google Maps or Leaflet (OpenStreetMap)
+
+Enable zoom and drag
+
+Enable marker clustering if many venues exist
+
+Keep performance optimized
+
+Map must:
+
+Auto-center on user location (if permission granted)
+
+Fallback to default city (Mosul) if denied
+
+Distance Sorting
+
+Keep Haversine formula active.
+
+Even in Map view:
+Venues must still be sorted internally by nearest.
+
+UI Rules
+
+Dark mode
+
+Neon green only for primary action buttons
+
+Smooth transition animation when switching List ↔ Map
+
+Skeleton loading instead of spinner
+
+Mobile First Requirement
+
+Map must:
+
+Fill screen properly
+
+Not overflow
+
+Have responsive marker scaling
+
+🚀 FINAL INSTRUCTION
+
+Integrate Store page and Map toggle cleanly.
+
+Do not modify:
+
+Authentication system
+
+Booking system
+
+Owner dashboard
+
+Admin dashboard
+
+Ensure performance optimization and clean modular structure
