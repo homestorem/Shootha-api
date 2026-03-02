@@ -13,6 +13,7 @@ import {
 } from "@expo-google-fonts/cairo";
 import { BookingsProvider } from "@/context/BookingsContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { LocationProvider } from "@/context/LocationContext";
 import { StatusBar } from "expo-status-bar";
 import { View, Text, StyleSheet, Animated, Dimensions, Platform } from "react-native";
 import { Colors } from "@/constants/colors";
@@ -193,12 +194,14 @@ export default function RootLayout() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <BookingsProvider>
-            <GestureHandlerRootView style={{ flex: 1 }}>
-              <StatusBar style="light" />
-              <AppNavigator />
-            </GestureHandlerRootView>
-          </BookingsProvider>
+          <LocationProvider>
+            <BookingsProvider>
+              <GestureHandlerRootView style={{ flex: 1 }}>
+                <StatusBar style="light" />
+                <AppNavigator />
+              </GestureHandlerRootView>
+            </BookingsProvider>
+          </LocationProvider>
         </AuthProvider>
       </QueryClientProvider>
     </ErrorBoundary>

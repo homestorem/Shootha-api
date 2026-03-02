@@ -4,13 +4,14 @@ import { storage } from "./storage";
 import jwt from "jsonwebtoken";
 
 const JWT_SECRET = process.env.SESSION_SECRET || "shootha_secret_2026";
+const SUPERVISOR_MASTER_KEY = process.env.SUPERVISOR_MASTER_KEY || "shootha_supervisor_2026";
 
 function generateOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-function signToken(userId: string, role: string): string {
-  return jwt.sign({ userId, role }, JWT_SECRET, { expiresIn: "30d" });
+function signToken(userId: string, role: string, expiresIn: string = "30d"): string {
+  return jwt.sign({ userId, role }, JWT_SECRET, { expiresIn } as any);
 }
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
@@ -27,6 +28,16 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
   } catch {
     return res.status(401).json({ message: "الجلسة منتهية، يرجى تسجيل الدخول مجدداً" });
   }
+}
+
+export function supervisorGuard(req: Request, res: Response, next: NextFunction) {
+  const role = (req as any).userRole;
+  if (role === "supervisor") {
+    if (req.method !== "GET") {
+      return res.status(403).json({ message: "المشرف المؤقت لديه صلاحيات عرض فقط" });
+    }
+  }
+  next();
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -53,23 +64,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         password, dateOfBirth, profileImage,
         venueName, areaName, fieldSize, bookingPrice,
         hasBathrooms, hasMarket, latitude, longitude,
+        venueImages, ownerDeviceLat, ownerDeviceLon,
+        userLat, userLon,
       } = req.body as {
-        phone: string;
-        name: string;
-        role: string;
-        otp: string;
-        deviceId?: string;
-        password?: string;
-        dateOfBirth?: string;
-        profileImage?: string;
-        venueName?: string;
-        areaName?: string;
-        fieldSize?: string;
-        bookingPrice?: string;
-        hasBathrooms?: boolean;
-        hasMarket?: boolean;
-        latitude?: string;
-        longitude?: string;
+        phone: string; name: string; role: string; otp: string; deviceId?: string;
+        password?: string; dateOfBirth?: string; profileImage?: string;
+        venueName?: string; areaName?: string; fieldSize?: string;
+        bookingPrice?: string; hasBathrooms?: boolean; hasMarket?: boolean;
+        latitude?: string; longitude?: string;
+        venueImages?: string[];
+        ownerDeviceLat?: string; ownerDeviceLon?: string;
+        userLat?: string; userLon?: string;
       };
 
       if (!phone || !name || !role || !otp) {
@@ -97,11 +102,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "رمز التحقق غير صحيح أو منتهي" });
       }
 
+      const playerLat = role === "player" ? (userLat ?? latitude) : latitude;
+      const playerLon = role === "player" ? (userLon ?? longitude) : longitude;
+
       const user = await storage.createAuthUser({
         phone, name, role, deviceId,
         password, dateOfBirth, profileImage,
         venueName, areaName, fieldSize, bookingPrice,
-        hasBathrooms, hasMarket, latitude, longitude,
+        hasBathrooms, hasMarket,
+        latitude: playerLat,
+        longitude: playerLon,
+        venueImages,
+        ownerDeviceLat,
+        ownerDeviceLon,
       });
       const token = signToken(user.id, user.role);
 
@@ -149,6 +162,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getAuthUserById(userId);
       if (!user) return res.status(404).json({ message: "المستخدم غير موجود" });
       return res.json({ id: user.id, name: user.name, phone: user.phone, role: user.role });
+    } catch {
+      return res.status(500).json({ message: "خطأ في الخادم" });
+    }
+  });
+
+  app.patch("/api/auth/location", authMiddleware, async (req, res) => {
+    try {
+      const userId = (req as any).userId;
+      const { latitude, longitude } = req.body as { latitude: string; longitude: string };
+      await storage.updateAuthUser(userId, { latitude, longitude });
+      return res.json({ message: "تم تحديث الموقع" });
+    } catch {
+      return res.status(500).json({ message: "خطأ في الخادم" });
+    }
+  });
+
+  app.post("/api/auth/supervisor-token", async (req, res) => {
+    try {
+      const { masterKey, expiryMinutes = 120 } = req.body as {
+        masterKey: string;
+        expiryMinutes?: number;
+      };
+
+      if (masterKey !== SUPERVISOR_MASTER_KEY) {
+        return res.status(403).json({ message: "مفتاح الوصول غير صحيح" });
+      }
+
+      const clampedExpiry = Math.min(Math.max(expiryMinutes, 10), 480);
+      const token = signToken("supervisor", "supervisor", `${clampedExpiry}m`);
+      const expiresAt = new Date(Date.now() + clampedExpiry * 60 * 1000).toISOString();
+
+      console.log(`[SUPERVISOR] Token created, expires at ${expiresAt}`);
+
+      return res.json({
+        token,
+        role: "supervisor",
+        expiresAt,
+        expiryMinutes: clampedExpiry,
+        message: "تم إنشاء رمز المشرف المؤقت",
+        permissions: ["view:bookings", "view:venues", "view:revenue"],
+      });
     } catch {
       return res.status(500).json({ message: "خطأ في الخادم" });
     }

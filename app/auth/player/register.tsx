@@ -17,11 +17,13 @@ import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Colors } from "@/constants/colors";
 import { useAuth, PENDING_REG_KEY, PendingPlayerData } from "@/context/AuthContext";
+import { useLocation } from "@/context/LocationContext";
 import { AuthInput } from "@/components/AuthInput";
 
 export default function PlayerRegisterScreen() {
   const insets = useSafeAreaInsets();
   const { sendOtp } = useAuth();
+  const location = useLocation();
 
   const [name, setName] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
@@ -104,12 +106,26 @@ export default function PlayerRegisterScreen() {
     setIsLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
+      let userLat: string | undefined;
+      let userLon: string | undefined;
+      if (Platform.OS !== "web") {
+        if (location.hasPermission === null) {
+          await location.requestLocation();
+        }
+        if (location.hasPermission !== false) {
+          userLat = String(location.latitude);
+          userLon = String(location.longitude);
+        }
+      }
+
       const pendingData: PendingPlayerData = {
         name: name.trim(),
         phone: phone.trim(),
         password,
         dateOfBirth: dateOfBirth.trim(),
         profileImage: profileImageUri ?? undefined,
+        userLat,
+        userLon,
       };
       await AsyncStorage.setItem(PENDING_REG_KEY, JSON.stringify(pendingData));
 

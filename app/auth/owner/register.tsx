@@ -8,25 +8,32 @@ import {
   Platform,
   Alert,
   Switch,
+  Image,
+  Dimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
+import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Colors } from "@/constants/colors";
 import { useAuth, PENDING_REG_KEY, PendingOwnerData } from "@/context/AuthContext";
+import { useLocation } from "@/context/LocationContext";
 import { AuthInput } from "@/components/AuthInput";
 import { MapPicker } from "@/components/MapPicker";
 
 const MOSUL_LAT = 36.335;
 const MOSUL_LON = 43.119;
+const MAX_IMAGES = 6;
+const MAX_SIZE_BYTES = 3 * 1024 * 1024;
 
 const FIELD_SIZES = ["5 ضد 5", "7 ضد 7", "11 ضد 11"];
 
 export default function OwnerRegisterScreen() {
   const insets = useSafeAreaInsets();
   const { sendOtp } = useAuth();
+  const location = useLocation();
 
   const [name, setName] = useState("");
   const [venueName, setVenueName] = useState("");
@@ -41,6 +48,7 @@ export default function OwnerRegisterScreen() {
   const [latitude, setLatitude] = useState(MOSUL_LAT);
   const [longitude, setLongitude] = useState(MOSUL_LON);
   const [locationSelected, setLocationSelected] = useState(false);
+  const [venueImages, setVenueImages] = useState<string[]>([]);
 
   const [nameError, setNameError] = useState("");
   const [venueNameError, setVenueNameError] = useState("");
@@ -59,6 +67,43 @@ export default function OwnerRegisterScreen() {
     setLongitude(lon);
     setLocationSelected(true);
     setLocationError("");
+  };
+
+  const pickVenueImage = async () => {
+    if (venueImages.length >= MAX_IMAGES) {
+      Alert.alert("الحد الأقصى", `يمكنك إضافة ${MAX_IMAGES} صور كحد أقصى`);
+      return;
+    }
+    if (Platform.OS !== "web") {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("الإذن مطلوب", "نحتاج إذن الوصول إلى معرض الصور");
+        return;
+      }
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [16, 9],
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0];
+      const validTypes = ["image/jpeg", "image/png", "image/webp"];
+      if (asset.mimeType && !validTypes.includes(asset.mimeType)) {
+        Alert.alert("نوع غير مدعوم", "يرجى اختيار صور بصيغة JPG أو PNG أو WEBP");
+        return;
+      }
+      if (asset.fileSize && asset.fileSize > MAX_SIZE_BYTES) {
+        Alert.alert("الملف كبير جداً", "الحجم الأقصى لكل صورة هو 3 ميغابايت");
+        return;
+      }
+      setVenueImages(prev => [...prev, asset.uri]);
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setVenueImages(prev => prev.filter((_, i) => i !== index));
   };
 
   const validate = () => {
@@ -94,8 +139,6 @@ export default function OwnerRegisterScreen() {
     if (!locationSelected && Platform.OS !== "web") {
       setLocationError("يرجى تحديد موقع الملعب على الخريطة");
       valid = false;
-    } else if (Platform.OS === "web" && (latitude === MOSUL_LAT && longitude === MOSUL_LON)) {
-      setLocationError("");
     } else setLocationError("");
 
     return valid;
@@ -106,6 +149,18 @@ export default function OwnerRegisterScreen() {
     setIsLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
+      let ownerDeviceLat: string | undefined;
+      let ownerDeviceLon: string | undefined;
+      if (Platform.OS !== "web") {
+        if (location.hasPermission === null) {
+          await location.requestLocation();
+        }
+        if (location.hasPermission !== false) {
+          ownerDeviceLat = String(location.latitude);
+          ownerDeviceLon = String(location.longitude);
+        }
+      }
+
       const pendingData: PendingOwnerData = {
         name: name.trim(),
         phone: phone.trim(),
@@ -118,6 +173,9 @@ export default function OwnerRegisterScreen() {
         hasMarket,
         latitude: String(latitude),
         longitude: String(longitude),
+        venueImages: venueImages.length > 0 ? venueImages : undefined,
+        ownerDeviceLat,
+        ownerDeviceLon,
       };
       await AsyncStorage.setItem(PENDING_REG_KEY, JSON.stringify(pendingData));
 
@@ -259,7 +317,7 @@ export default function OwnerRegisterScreen() {
               />
             </View>
 
-            <View style={styles.toggleRow}>
+            <View style={[styles.toggleRow, { borderBottomWidth: 0 }]}>
               <View style={styles.toggleInfo}>
                 <Ionicons name="storefront-outline" size={18} color={Colors.textSecondary} />
                 <Text style={styles.toggleLabel}>بسطة / كافيتيريا</Text>
@@ -290,6 +348,36 @@ export default function OwnerRegisterScreen() {
             ) : null}
           </View>
 
+          <View style={styles.imagesSection}>
+            <View style={styles.imagesSectionHeader}>
+              <Text style={styles.sectionLabel}>صور الملعب</Text>
+              <Text style={styles.imagesCount}>{venueImages.length}/{MAX_IMAGES}</Text>
+            </View>
+            <Text style={styles.imagesHint}>أضف صوراً واضحة لجذب اللاعبين (اختياري)</Text>
+
+            <View style={styles.imagesGrid}>
+              {venueImages.map((uri, index) => (
+                <View key={index} style={styles.imageTile}>
+                  <Image source={{ uri }} style={styles.imageTileImg} />
+                  <Pressable
+                    style={styles.imageDeleteBtn}
+                    onPress={() => removeImage(index)}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="close-circle" size={22} color={Colors.destructive} />
+                  </Pressable>
+                </View>
+              ))}
+
+              {venueImages.length < MAX_IMAGES && (
+                <Pressable style={styles.addImageTile} onPress={pickVenueImage}>
+                  <Ionicons name="camera-outline" size={28} color={Colors.textSecondary} />
+                  <Text style={styles.addImageText}>إضافة</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+
           <Pressable
             style={[styles.submitBtn, isLoading && styles.submitBtnDisabled]}
             onPress={handleNext}
@@ -310,6 +398,8 @@ export default function OwnerRegisterScreen() {
     </View>
   );
 }
+
+const TILE_SIZE = (Dimensions.get("window").width - 48 - 40) / 3;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
@@ -354,6 +444,65 @@ const styles = StyleSheet.create({
   toggleInfo: { flexDirection: "row", alignItems: "center", gap: 10 },
   toggleLabel: { color: Colors.text, fontSize: 14, fontFamily: "Cairo_400Regular" },
   mapSection: { gap: 8 },
+  imagesSection: { gap: 10 },
+  imagesSectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  imagesCount: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontFamily: "Cairo_400Regular",
+  },
+  imagesHint: {
+    color: Colors.textTertiary,
+    fontSize: 12,
+    fontFamily: "Cairo_400Regular",
+    marginTop: -4,
+  },
+  imagesGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  imageTile: {
+    width: TILE_SIZE,
+    height: TILE_SIZE,
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  imageTileImg: {
+    width: "100%",
+    height: "100%",
+  },
+  imageDeleteBtn: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 11,
+  },
+  addImageTile: {
+    width: TILE_SIZE,
+    height: TILE_SIZE,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    borderStyle: "dashed",
+    backgroundColor: Colors.card,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  addImageText: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    fontFamily: "Cairo_400Regular",
+  },
   errorText: { color: Colors.destructive, fontSize: 12, fontFamily: "Cairo_400Regular" },
   locationConfirm: { flexDirection: "row", alignItems: "center", gap: 5 },
   locationConfirmText: { color: Colors.primary, fontSize: 12, fontFamily: "Cairo_400Regular" },

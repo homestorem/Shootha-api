@@ -9,6 +9,7 @@ export interface IStorage {
   getAuthUserByPhone(phone: string): Promise<AuthUser | undefined>;
   getAuthUserById(id: string): Promise<AuthUser | undefined>;
   getAuthUserByVenueName(venueName: string): Promise<AuthUser | undefined>;
+  updateAuthUser(id: string, updates: Partial<AuthUser>): Promise<void>;
   createAuthUser(data: {
     phone: string;
     name: string;
@@ -25,6 +26,9 @@ export interface IStorage {
     hasMarket?: boolean;
     latitude?: string;
     longitude?: string;
+    venueImages?: string[];
+    ownerDeviceLat?: string;
+    ownerDeviceLon?: string;
   }): Promise<AuthUser>;
   storeOtp(phone: string, otp: string): Promise<void>;
   verifyOtp(phone: string, otp: string): Promise<boolean>;
@@ -72,6 +76,13 @@ export class MemStorage implements IStorage {
     );
   }
 
+  async updateAuthUser(id: string, updates: Partial<AuthUser>): Promise<void> {
+    const user = this.authUsers.get(id);
+    if (user) {
+      this.authUsers.set(id, { ...user, ...updates });
+    }
+  }
+
   async createAuthUser(data: {
     phone: string;
     name: string;
@@ -88,6 +99,9 @@ export class MemStorage implements IStorage {
     hasMarket?: boolean;
     latitude?: string;
     longitude?: string;
+    venueImages?: string[];
+    ownerDeviceLat?: string;
+    ownerDeviceLon?: string;
   }): Promise<AuthUser> {
     const id = randomUUID();
     let passwordHash: string | null = null;
@@ -114,6 +128,9 @@ export class MemStorage implements IStorage {
       hasMarket: data.hasMarket ?? null,
       latitude: data.latitude ?? null,
       longitude: data.longitude ?? null,
+      venueImages: data.venueImages ? JSON.stringify(data.venueImages) : null,
+      ownerDeviceLat: data.ownerDeviceLat ?? null,
+      ownerDeviceLon: data.ownerDeviceLon ?? null,
     };
     this.authUsers.set(id, user);
     return user;

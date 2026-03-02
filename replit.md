@@ -5,14 +5,20 @@
 Shoot'ha (شوتها) is a mobile-first sports venue booking application built for the Saudi/Arabic market. It allows players to discover, book, and manage football field reservations, and lets venue owners manage their sports facilities. The app is a React Native / Expo application with an Express.js backend server, targeting iOS, Android, and web platforms.
 
 Key features include:
-- Role-based access (Player, Owner, Guest)
-- OTP-based phone number authentication (no password)
+- Role-based access (Player, Owner, Guest, Supervisor)
+- OTP-based phone authentication + password for players/owners
 - Venue discovery and booking with time slot selection
 - Booking management with player payment tracking
 - 1-Click rebook system for repeating past bookings
 - Animated splash screen with football animation
 - Full RTL (right-to-left) Arabic UI
-- Dark mode only interface with neon green accent
+- Dark mode only interface with neon green (#2ECC71) accent
+- Auto-sliding ad banner on home screen (190px, FlatList with pagingEnabled)
+- Map/List toggle in Search tab (native MapView on iOS/Android, web fallback)
+- Store tab (coming-soon page with pulsing placeholder)
+- Multi-image upload for venues (max 6, 3x2 grid, 3MB limit per image)
+- Location capture: player/owner device GPS stored at registration
+- Supervisor role: temporary 2-hour JWT, view-only access via `/api/auth/supervisor-token`
 
 ## User Preferences
 
@@ -36,8 +42,9 @@ The app uses file-based routing under the `app/` directory:
 **Navigation:** Expo Router with tab-based navigation. On iOS with Liquid Glass support it uses `NativeTabs` from `expo-router/unstable-native-tabs`; on other platforms it falls back to a standard `Tabs` component with a BlurView tab bar.
 
 **State Management:**
-- `context/AuthContext.tsx` – Authentication state (user, token, guest mode), persisted via AsyncStorage
+- `context/AuthContext.tsx` – Authentication state (user, token, guest mode), persisted via AsyncStorage; `UserRole` includes supervisor
 - `context/BookingsContext.tsx` – Bookings and venues state, persisted via AsyncStorage
+- `context/LocationContext.tsx` – Device GPS (expo-location), falls back to Mosul (36.335, 43.119)
 - TanStack React Query for server data fetching
 
 **UI Design:**
@@ -63,11 +70,12 @@ The app uses file-based routing under the `app/` directory:
 **Entry point:** `server/index.ts` – Sets up CORS (allowing Replit dev domains and localhost), JSON parsing, and static file serving
 
 **Routes** (`server/routes.ts`):
-- `POST /api/auth/send-otp` – Generates and stores a 6-digit OTP for a phone number; returns OTP in dev mode
-- `POST /api/auth/register` – Creates new user with phone + name + role + OTP verification
+- `POST /api/auth/send-otp` – Generates and stores a 6-digit OTP; returns `devOtp` in response body
+- `POST /api/auth/register` – Creates user with phone + name + role + OTP + password; supports `venueImages`, `ownerDeviceLat`, `ownerDeviceLon`, `userLat`, `userLon`
 - `POST /api/auth/login` – Verifies OTP and returns JWT
 - `GET /api/auth/me` – Returns authenticated user info (JWT protected)
-- Additional booking/venue routes implied by the architecture
+- `PATCH /api/auth/location` – Updates user lat/lon (JWT protected)
+- `POST /api/auth/supervisor-token` – Issues a temporary view-only JWT (requires `SUPERVISOR_MASTER_KEY`)
 
 **Authentication:**
 - Phone number + OTP (no passwords for end users)

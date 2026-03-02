@@ -87,6 +87,9 @@ export default function OwnerVerifyOtpScreen() {
             hasMarket: pending?.hasMarket,
             latitude: pending?.latitude,
             longitude: pending?.longitude,
+            venueImages: pending?.venueImages,
+            ownerDeviceLat: pending?.ownerDeviceLat,
+            ownerDeviceLon: pending?.ownerDeviceLon,
           }
         );
       } else {

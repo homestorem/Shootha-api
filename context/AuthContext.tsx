@@ -9,7 +9,7 @@ import React, {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiRequest } from "@/lib/query-client";
 
-export type UserRole = "player" | "owner" | "guest";
+export type UserRole = "player" | "owner" | "guest" | "supervisor";
 
 export type AuthUser = {
   id: string;
@@ -24,6 +24,8 @@ export type PendingPlayerData = {
   password: string;
   dateOfBirth?: string;
   profileImage?: string;
+  userLat?: string;
+  userLon?: string;
 };
 
 export type PendingOwnerData = {
@@ -38,6 +40,9 @@ export type PendingOwnerData = {
   hasMarket: boolean;
   latitude: string;
   longitude: string;
+  venueImages?: string[];
+  ownerDeviceLat?: string;
+  ownerDeviceLon?: string;
 };
 
 interface AuthContextValue {
@@ -52,7 +57,7 @@ interface AuthContextValue {
     name: string,
     role: UserRole,
     otp: string,
-    extraData?: Record<string, string | boolean | undefined>
+    extraData?: Record<string, string | string[] | boolean | undefined>
   ) => Promise<void>;
   sendOtp: (phone: string) => Promise<{ devOtp?: string }>;
   continueAsGuest: () => Promise<void>;
@@ -121,9 +126,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     name: string,
     role: UserRole,
     otp: string,
-    extraData?: Record<string, string | boolean | undefined>
+    extraData?: Record<string, string | string[] | boolean | undefined>
   ): Promise<void> => {
-    const payload: Record<string, string | boolean | undefined> = {
+    const payload: Record<string, string | string[] | boolean | undefined> = {
       phone,
       name,
       role,

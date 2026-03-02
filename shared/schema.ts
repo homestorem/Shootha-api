@@ -33,6 +33,9 @@ export const authUsers = pgTable("auth_users", {
   hasMarket: boolean("has_market"),
   latitude: text("latitude"),
   longitude: text("longitude"),
+  venueImages: text("venue_images"),
+  ownerDeviceLat: text("owner_device_lat"),
+  ownerDeviceLon: text("owner_device_lon"),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

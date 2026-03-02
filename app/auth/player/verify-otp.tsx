@@ -81,6 +81,8 @@ export default function PlayerVerifyOtpScreen() {
             password: pending?.password,
             dateOfBirth: pending?.dateOfBirth,
             profileImage: pending?.profileImage,
+            userLat: pending?.userLat,
+            userLon: pending?.userLon,
           }
         );
       } else {

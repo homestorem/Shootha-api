@@ -1,0 +1,201 @@
+REPLIT AI PATCH — HOME LAYOUT + OWNER IMAGES + TEMP ACCESS
+
+Project: Shoot’ha
+Modify existing structure only.
+Do NOT rebuild application.
+
+🧩 1️⃣ MODIFY HOME PAGE LAYOUT
+Change Order
+
+Current:
+
+Last Booking Card
+
+Advertisement Banner
+
+Required New Order:
+
+1️⃣ Advertisement Banner (Top)
+2️⃣ Last Booking Card (Rebook section)
+
+📢 2️⃣ ENLARGE ADVERTISEMENT BANNER
+
+Modify banner section:
+
+Requirements:
+
+Increase height by 30–40%
+
+Make banner full width
+
+Add smooth auto-slide (5 seconds)
+
+Keep pagination dots
+
+Make title font larger
+
+Add stronger green accent glow
+
+Add slight gradient overlay for depth
+
+Ensure:
+
+Banner becomes visually dominant section
+
+Responsive on mobile
+
+Does not break layout
+
+🏟 3️⃣ KEEP LAST BOOKING UNDER ADS
+
+Rebook card must:
+
+Appear under banner
+
+Slight shadow
+
+Elevated effect
+
+Neon green CTA button only
+
+Do not remove rebook logic.
+
+📸 4️⃣ ADD MULTIPLE VENUE IMAGES IN OWNER REGISTRATION
+
+Modify Owner Registration Form.
+
+Add:
+
+Field:
+"صور الملعب"
+
+Requirements:
+
+Allow multiple image upload (max 6)
+
+Preview images before submit
+
+Allow delete before upload
+
+Validate image type (jpg, png, webp)
+
+Max size per image (e.g., 3MB)
+
+Backend:
+
+Store images in uploads folder or cloud storage
+
+Save image URLs in new table:
+
+VenueImages:
+
+id
+
+venue_id
+
+image_url
+
+When displaying venue in app:
+
+Show image slider/gallery
+
+If no images → show default placeholder
+
+🗺 Display Images Inside App
+
+When player opens venue details:
+
+Show image carousel at top
+
+Swipe enabled (mobile)
+
+Auto slide optional
+
+Dark overlay on image
+
+Show venue name over image
+
+🔓 5️⃣ TEMPORARY ADMIN ACCESS MODE
+
+Add secure temporary access mode.
+
+Purpose:
+Allow temporary login to review operations without full admin rights.
+
+Create role:
+"supervisor"
+
+Access:
+
+Can view:
+
+Bookings
+
+Venues
+
+Ads
+
+Revenue
+
+Cannot:
+
+Delete data
+
+Ban users
+
+Modify pricing
+
+Add:
+
+Temporary access token:
+
+Expires after set time (e.g., 2 hours)
+
+Auto logout on expiry
+
+Add toggle in admin panel:
+"Create Temporary Access"
+
+Admin sets:
+
+Expiry duration
+
+View-only permissions
+
+Log all actions.
+
+🎨 UI RULES
+
+Maintain dark mode
+
+Neon green only for main actions
+
+Smooth transitions
+
+Skeleton loading for images
+
+Fully responsive
+
+🔒 SECURITY RULES
+
+Validate image uploads server-side
+
+Protect temp access by role check
+
+Auto invalidate expired temp tokens
+
+Prevent privilege escalation
+
+🚀 FINAL INSTRUCTION
+
+Apply layout changes and feature additions without modifying:
+
+Booking logic
+
+Authentication core
+
+Player system
+
+Existing APIs (only extend)
+
+Keep modular architecture clean and production-ready.

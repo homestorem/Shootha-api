@@ -1,0 +1,149 @@
+REPLIT AI PATCH — USER GEOLOCATION INTEGRATION
+
+Project: Shoot’ha
+Add geolocation capture during app entry and registration.
+Do NOT rebuild existing systems.
+Only extend current logic.
+
+📍 1️⃣ GET USER LOCATION ON APP START
+
+When app launches (after Splash):
+
+Before redirecting to home:
+
+Request geolocation permission.
+
+If user allows:
+
+Capture:
+
+latitude
+
+longitude
+
+Store in:
+
+Local storage (frontend)
+
+Send once to backend to update user profile
+
+If user denies:
+
+Fallback to default city (Mosul coordinates)
+
+Continue app normally
+
+Do NOT block app if denied.
+
+👤 2️⃣ GET LOCATION DURING PLAYER REGISTRATION
+
+On Player Register page:
+
+After user fills form but before final submit:
+
+Automatically:
+
+Request geolocation permission
+
+Capture coordinates
+
+Send with registration payload
+
+Store in Users table:
+
+Add fields if not exist:
+
+latitude
+
+longitude
+
+Validation:
+
+If location denied:
+Allow registration but mark location as null.
+
+🏟 3️⃣ GET LOCATION DURING OWNER REGISTRATION
+
+Owner already selects venue location manually.
+
+Additionally:
+
+Capture device location automatically and store as:
+
+owner_device_lat
+
+owner_device_lon
+
+Purpose:
+Fraud prevention / verification.
+
+Do NOT replace manual venue location.
+Only store device location separately.
+
+🗄 DATABASE UPDATE
+
+Ensure Users table includes:
+
+latitude (nullable)
+
+longitude (nullable)
+
+Optional:
+
+Add index for location-based search optimization.
+
+🗺 USAGE OF LOCATION
+
+After saving location:
+
+Use it to:
+
+Sort venues by nearest
+
+Auto-center map on user location
+
+Improve search results
+
+🔒 PRIVACY RULES
+
+Request permission clearly
+
+Do not track continuously
+
+Only capture once at:
+
+First login
+
+Registration
+
+Allow future manual refresh from settings
+
+🎨 UX REQUIREMENTS
+
+If asking permission:
+
+Show friendly message:
+
+"نحتاج موقعك لعرض أقرب الملاعب إليك"
+
+Add:
+
+Allow
+
+Skip
+
+Do not force.
+
+🚀 FINAL INSTRUCTION
+
+Integrate geolocation without breaking:
+
+Booking system
+
+Auth flow
+
+Map view
+
+Existing APIs
+
+Ensure mobile-first behavior and smooth fallback
