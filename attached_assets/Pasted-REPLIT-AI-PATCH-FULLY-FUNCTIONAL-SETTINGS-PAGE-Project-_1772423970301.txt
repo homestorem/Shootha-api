@@ -1,0 +1,223 @@
+REPLIT AI PATCH — FULLY FUNCTIONAL SETTINGS PAGE
+
+Project: Shoot’ha
+Modify Settings Page to make all options functional.
+
+Do NOT rebuild app.
+Only update settings logic and connect to backend properly.
+
+⚙ 1️⃣ DARK / LIGHT MODE TOGGLE (WORKING)
+
+In Settings page:
+
+Add toggle switch:
+
+"الوضع الداكن"
+
+Requirements:
+
+Default: Dark mode enabled
+
+Toggle must:
+
+Update user theme_mode in database
+
+Save in local storage
+
+Apply immediately without reload
+
+Theme rules:
+
+Dark:
+
+Background: #121212
+
+Light:
+
+Background: #F5F5F5
+
+Text dark
+
+Keep neon green as primary color
+
+Apply theme globally.
+
+🌍 2️⃣ LANGUAGE SWITCHER (WORKING)
+
+Add language selector:
+
+Options:
+
+العربية (default)
+
+English
+
+Kurdish
+
+When changed:
+
+Update user.language in database
+
+Save in local storage
+
+Update UI instantly
+
+Apply RTL when Arabic
+
+Apply LTR when English
+
+Use proper i18n system.
+
+👤 3️⃣ EDIT PROFILE (WORKING)
+
+Create “تعديل الملف الشخصي” page.
+
+Fields:
+
+Full Name
+
+Phone (requires OTP verification)
+
+Date of Birth
+
+Profile Image upload
+
+Rules:
+
+Phone change requires OTP
+
+Image upload replaces previous
+
+Save changes to Users table
+
+Show success message
+
+Use skeleton loading during save
+
+🗑 4️⃣ DELETE ACCOUNT (WORKING)
+
+In settings:
+
+Add button:
+"حذف الحساب"
+
+When pressed:
+
+Show confirmation modal:
+
+"هل أنت متأكد؟ لا يمكن التراجع عن هذا الإجراء"
+
+Require:
+
+Re-enter password
+
+If confirmed:
+
+Soft delete user
+
+Invalidate JWT
+
+Log user out
+
+Redirect to Splash
+
+Prevent deletion if active booking exists.
+
+💬 5️⃣ SUPPORT SYSTEM (WORKING)
+
+Add Support section with:
+
+Options:
+
+WhatsApp link
+
+Email link
+
+Contact form
+
+Contact form fields:
+
+Subject
+
+Message
+
+Submit:
+
+Save in SupportMessages table
+
+Send notification to admin dashboard
+
+Do not leave it as static link.
+Must store message in backend.
+
+🚪 6️⃣ LOGOUT (WORKING)
+
+Logout button must:
+
+Clear JWT
+
+Clear local storage
+
+Redirect to Splash
+
+Clear user state
+
+🔒 SECURITY RULES
+
+All settings updates require JWT
+
+Validate backend updates
+
+Hash password verification for delete
+
+Validate image uploads server-side
+
+🗄 DATABASE CHECK
+
+Ensure Users table includes:
+
+theme_mode
+
+language
+
+profile_image
+
+Create SupportMessages table if not exist:
+
+id
+
+user_id
+
+subject
+
+message
+
+created_at
+
+🎨 UI REQUIREMENTS
+
+Dark mode default
+
+Neon green only for primary buttons
+
+Smooth transitions
+
+Skeleton loading instead of spinner
+
+Fully responsive
+
+RTL Arabic default
+
+🚀 FINAL INSTRUCTION
+
+Make Settings page fully functional and connected to backend APIs without breaking:
+
+Auth system
+
+Booking system
+
+Owner system
+
+Admin dashboard
+
+Production-ready implementation only.

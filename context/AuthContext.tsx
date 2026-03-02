@@ -7,7 +7,8 @@ import React, {
   ReactNode,
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { fetch } from "expo/fetch";
 
 export type UserRole = "player" | "owner" | "guest" | "supervisor";
 
@@ -16,6 +17,8 @@ export type AuthUser = {
   name: string;
   phone: string;
   role: UserRole;
+  dateOfBirth?: string | null;
+  profileImage?: string | null;
 };
 
 export type PendingPlayerData = {
@@ -62,6 +65,12 @@ interface AuthContextValue {
   sendOtp: (phone: string) => Promise<{ devOtp?: string }>;
   continueAsGuest: () => Promise<void>;
   logout: () => Promise<void>;
+  updateProfile: (data: {
+    name?: string;
+    dateOfBirth?: string;
+    profileImage?: string;
+  }) => Promise<void>;
+  deleteAccount: (password: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -88,7 +97,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         AsyncStorage.getItem(AUTH_USER_KEY),
         AsyncStorage.getItem(AUTH_GUEST_KEY),
       ]);
-
       if (storedToken && storedUser) {
         setToken(storedToken);
         setUser(JSON.parse(storedUser));
@@ -102,10 +110,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const authFetch = async (
+    method: string,
+    route: string,
+    data?: unknown
+  ): Promise<Response> => {
+    const url = new URL(route, getApiUrl()).toString();
+    const currentToken = token;
+    const res = await fetch(url, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
+      },
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try {
+        const body = await res.json();
+        msg = body.message || msg;
+      } catch {}
+      throw new Error(msg);
+    }
+    return res;
+  };
+
   const sendOtp = async (phone: string): Promise<{ devOtp?: string }> => {
     const res = await apiRequest("POST", "/api/auth/send-otp", { phone });
-    const data = await res.json();
-    return data;
+    return await res.json();
   };
 
   const login = async (phone: string, otp: string): Promise<void> => {
@@ -141,7 +175,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       AsyncStorage.setItem(AUTH_TOKEN_KEY, data.token),
       AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user)),
       AsyncStorage.removeItem(AUTH_GUEST_KEY),
-      AsyncStorage.removeItem(PENDING_REG_KEY),
     ]);
     setToken(data.token);
     setUser(data.user);
@@ -161,12 +194,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       AsyncStorage.removeItem(AUTH_USER_KEY),
       AsyncStorage.removeItem(AUTH_GUEST_KEY),
     ]);
-    setUser(null);
     setToken(null);
+    setUser(null);
     setIsGuest(false);
   };
 
-  const isAuthenticated = !isLoading && (user !== null || isGuest);
+  const updateProfile = async (data: {
+    name?: string;
+    dateOfBirth?: string;
+    profileImage?: string;
+  }): Promise<void> => {
+    const res = await authFetch("PATCH", "/api/user/profile", data);
+    const body: { user: AuthUser } = await res.json();
+    const updatedUser = { ...user!, ...body.user };
+    setUser(updatedUser);
+    await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedUser));
+  };
+
+  const deleteAccount = async (password: string): Promise<void> => {
+    await authFetch("DELETE", "/api/user/account", { password });
+    await logout();
+  };
+
+  const isAuthenticated = !!user && !isGuest;
 
   const value = useMemo(
     () => ({
@@ -180,8 +230,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sendOtp,
       continueAsGuest,
       logout,
+      updateProfile,
+      deleteAccount,
     }),
-    [user, token, isGuest, isLoading, isAuthenticated]
+    [user, token, isGuest, isLoading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

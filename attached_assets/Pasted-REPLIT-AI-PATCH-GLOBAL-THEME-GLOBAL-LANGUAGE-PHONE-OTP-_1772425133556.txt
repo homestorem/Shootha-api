@@ -1,0 +1,223 @@
+REPLIT AI PATCH — GLOBAL THEME + GLOBAL LANGUAGE + PHONE OTP UPDATE
+
+Project: Shoot’ha
+Modify existing system.
+Do NOT rebuild project.
+Apply changes globally across entire application.
+
+🌗 1️⃣ MAKE DARK / LIGHT MODE GLOBAL (NOT SETTINGS ONLY)
+
+Current issue:
+Theme works only inside Settings page.
+
+Required:
+
+Make theme apply to:
+
+Home
+
+Search
+
+Map
+
+Bookings
+
+Venue details
+
+Store
+
+Owner dashboard
+
+Admin dashboard
+
+Auth pages
+
+All components
+
+Implementation Rules
+
+Store theme in:
+
+Database (user.theme_mode)
+
+Local storage (for instant load)
+
+On app start:
+
+Read theme from local storage first
+
+Apply before page render (prevent flash)
+
+Apply theme at root level:
+
+<body> or root layout wrapper
+
+Use global CSS variables:
+
+Example logic (conceptual, not code rewrite):
+
+--bg-color
+
+--text-color
+
+--card-bg
+
+--border-color
+
+When theme changes:
+
+Update root class
+
+Re-render without reload
+
+Default:
+Dark mode enabled.
+
+🌍 2️⃣ LANGUAGE SYSTEM GLOBAL (AR + EN ONLY)
+
+Remove Kurdish option completely.
+
+Languages allowed:
+
+Arabic (default, RTL)
+
+English (LTR)
+
+Required:
+
+Language must apply to:
+
+All pages
+
+Buttons
+
+Navigation
+
+Forms
+
+Notifications
+
+Dashboard
+
+Admin panel
+
+Use centralized i18n system.
+
+When language changes:
+
+Save to DB (user.language)
+
+Save to local storage
+
+Switch layout direction:
+
+Arabic → RTL
+
+English → LTR
+
+Re-render entire app instantly
+
+No page refresh.
+
+📱 3️⃣ CHANGE PHONE NUMBER WITH OTP VERIFICATION
+
+Modify Edit Profile logic.
+
+When user edits phone number:
+
+Flow:
+
+1️⃣ User enters new phone
+2️⃣ System checks uniqueness
+3️⃣ Send OTP to new phone
+4️⃣ Show OTP verification modal
+5️⃣ If verified → update phone
+6️⃣ If not verified → reject change
+
+Important:
+
+Do NOT update phone before OTP success
+
+Add expiration time for OTP (e.g., 5 minutes)
+
+Limit retry attempts
+
+Log phone change activity
+
+🗄 DATABASE CHECK
+
+Ensure Users table has:
+
+theme_mode
+
+language
+
+phone_verified (boolean optional)
+
+Create OTP table if not exist:
+
+OTP_Verifications:
+
+id
+
+phone
+
+code
+
+expires_at
+
+attempts
+
+🔒 SECURITY REQUIREMENTS
+
+OTP must expire
+
+Limit max attempts (e.g., 5)
+
+Prevent brute force
+
+Require JWT for phone change
+
+Log change timestamp
+
+🎨 UI REQUIREMENTS
+
+Theme change:
+
+Smooth fade transition (300ms)
+
+No white flash
+
+No reload
+
+Language change:
+
+Navigation re-align instantly
+
+Icons stay consistent
+
+Proper font rendering
+
+Phone change:
+
+Show success message
+
+Show error if number already used
+
+🚀 FINAL INSTRUCTION
+
+Make theme and language truly global across entire application.
+
+Ensure phone number change is secure and OTP verified.
+
+Do NOT break:
+
+Auth system
+
+Booking logic
+
+Owner system
+
+Admin panel
+
+Production-ready behavior only

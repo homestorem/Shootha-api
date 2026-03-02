@@ -14,6 +14,8 @@ import {
 import { BookingsProvider } from "@/context/BookingsContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { LocationProvider } from "@/context/LocationContext";
+import { ThemeProvider } from "@/context/ThemeContext";
+import { LanguageProvider } from "@/context/LanguageContext";
 import { StatusBar } from "expo-status-bar";
 import { View, Text, StyleSheet, Animated, Dimensions, Platform } from "react-native";
 import { Colors } from "@/constants/colors";
@@ -169,6 +171,8 @@ function AppNavigator() {
         <Stack.Screen name="auth/owner/verify-otp" options={{ headerShown: false, animation: "slide_from_right" }} />
         <Stack.Screen name="venue/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
         <Stack.Screen name="booking/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
+        <Stack.Screen name="profile/edit" options={{ headerShown: false, animation: "slide_from_right" }} />
+        <Stack.Screen name="profile/support" options={{ headerShown: false, animation: "slide_from_right" }} />
       </Stack>
       {showSplash && <SplashOverlay onFinish={handleSplashFinish} />}
     </>
@@ -193,16 +197,20 @@ export default function RootLayout() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <LocationProvider>
-            <BookingsProvider>
-              <GestureHandlerRootView style={{ flex: 1 }}>
-                <StatusBar style="light" />
-                <AppNavigator />
-              </GestureHandlerRootView>
-            </BookingsProvider>
-          </LocationProvider>
-        </AuthProvider>
+        <ThemeProvider>
+          <LanguageProvider>
+            <AuthProvider>
+              <LocationProvider>
+                <BookingsProvider>
+                  <GestureHandlerRootView style={{ flex: 1 }}>
+                    <StatusBar style="light" />
+                    <AppNavigator />
+                  </GestureHandlerRootView>
+                </BookingsProvider>
+              </LocationProvider>
+            </AuthProvider>
+          </LanguageProvider>
+        </ThemeProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   );

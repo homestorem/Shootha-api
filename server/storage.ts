@@ -2,6 +2,16 @@ import { type User, type InsertUser, type AuthUser } from "@shared/schema";
 import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
 
+export type SupportMessage = {
+  id: string;
+  userId: string;
+  subject: string;
+  message: string;
+  createdAt: string;
+};
+
+type InternalUser = AuthUser & { deletedAt?: string };
+
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -10,6 +20,11 @@ export interface IStorage {
   getAuthUserById(id: string): Promise<AuthUser | undefined>;
   getAuthUserByVenueName(venueName: string): Promise<AuthUser | undefined>;
   updateAuthUser(id: string, updates: Partial<AuthUser>): Promise<void>;
+  updateUserProfile(
+    id: string,
+    data: { name?: string; dateOfBirth?: string; profileImage?: string }
+  ): Promise<AuthUser>;
+  softDeleteUser(id: string): Promise<void>;
   createAuthUser(data: {
     phone: string;
     name: string;
@@ -32,17 +47,21 @@ export interface IStorage {
   }): Promise<AuthUser>;
   storeOtp(phone: string, otp: string): Promise<void>;
   verifyOtp(phone: string, otp: string): Promise<boolean>;
+  createSupportMessage(data: { userId: string; subject: string; message: string }): Promise<SupportMessage>;
+  getSupportMessages(): Promise<SupportMessage[]>;
 }
 
 export class MemStorage implements IStorage {
   private users: Map<string, User>;
-  private authUsers: Map<string, AuthUser>;
+  private authUsers: Map<string, InternalUser>;
   private otpStore: Map<string, { otp: string; expiresAt: number }>;
+  private supportMessages: Map<string, SupportMessage>;
 
   constructor() {
     this.users = new Map();
     this.authUsers = new Map();
     this.otpStore = new Map();
+    this.supportMessages = new Map();
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -50,9 +69,7 @@ export class MemStorage implements IStorage {
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    return Array.from(this.users.values()).find((u) => u.username === username);
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
@@ -63,16 +80,20 @@ export class MemStorage implements IStorage {
   }
 
   async getAuthUserByPhone(phone: string): Promise<AuthUser | undefined> {
-    return Array.from(this.authUsers.values()).find(u => u.phone === phone);
+    return Array.from(this.authUsers.values()).find(
+      (u) => u.phone === phone && !u.deletedAt
+    );
   }
 
   async getAuthUserById(id: string): Promise<AuthUser | undefined> {
-    return this.authUsers.get(id);
+    const u = this.authUsers.get(id);
+    if (!u || u.deletedAt) return undefined;
+    return u;
   }
 
   async getAuthUserByVenueName(venueName: string): Promise<AuthUser | undefined> {
     return Array.from(this.authUsers.values()).find(
-      u => u.venueName?.toLowerCase() === venueName?.toLowerCase()
+      (u) => !u.deletedAt && u.venueName?.toLowerCase() === venueName?.toLowerCase()
     );
   }
 
@@ -80,6 +101,29 @@ export class MemStorage implements IStorage {
     const user = this.authUsers.get(id);
     if (user) {
       this.authUsers.set(id, { ...user, ...updates });
+    }
+  }
+
+  async updateUserProfile(
+    id: string,
+    data: { name?: string; dateOfBirth?: string; profileImage?: string }
+  ): Promise<AuthUser> {
+    const user = this.authUsers.get(id);
+    if (!user || user.deletedAt) throw new Error("المستخدم غير موجود");
+    const updated: InternalUser = {
+      ...user,
+      ...(data.name !== undefined ? { name: data.name } : {}),
+      ...(data.dateOfBirth !== undefined ? { dateOfBirth: data.dateOfBirth } : {}),
+      ...(data.profileImage !== undefined ? { profileImage: data.profileImage } : {}),
+    };
+    this.authUsers.set(id, updated);
+    return updated;
+  }
+
+  async softDeleteUser(id: string): Promise<void> {
+    const user = this.authUsers.get(id);
+    if (user) {
+      this.authUsers.set(id, { ...user, deletedAt: new Date().toISOString() });
     }
   }
 
@@ -108,7 +152,7 @@ export class MemStorage implements IStorage {
     if (data.password) {
       passwordHash = await bcrypt.hash(data.password, 10);
     }
-    const user: AuthUser = {
+    const user: InternalUser = {
       id,
       phone: data.phone,
       name: data.name,
@@ -155,6 +199,29 @@ export class MemStorage implements IStorage {
       return true;
     }
     return false;
+  }
+
+  async createSupportMessage(data: {
+    userId: string;
+    subject: string;
+    message: string;
+  }): Promise<SupportMessage> {
+    const id = randomUUID();
+    const msg: SupportMessage = {
+      id,
+      userId: data.userId,
+      subject: data.subject,
+      message: data.message,
+      createdAt: new Date().toISOString(),
+    };
+    this.supportMessages.set(id, msg);
+    return msg;
+  }
+
+  async getSupportMessages(): Promise<SupportMessage[]> {
+    return Array.from(this.supportMessages.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
   }
 }
 
