@@ -1,0 +1,266 @@
+REPLIT AI MASTER FIX SCRIPT — OTP ONLY + BOOKINGS + NOTIFICATIONS FIX
+
+Project: Shoot’ha
+Important:
+DO NOT change UI design.
+Only fix logic, backend, database, and flows.
+
+1️⃣ REMOVE PASSWORD SYSTEM COMPLETELY (OTP ONLY)
+Database:
+
+Remove password logic but keep column if needed for compatibility.
+
+Disable:
+
+password validation
+
+confirm password
+
+password reset
+
+password check middleware
+
+Authentication must rely only on:
+
+Firebase Phone OTP → ID Token → Server Verification → Issue JWT.
+
+2️⃣ VERIFY FIREBASE TOKEN ON SERVER
+
+Create middleware:
+
+/server/middleware/firebaseAuth.js
+
+Logic:
+
+Receive Firebase ID Token from frontend
+
+Verify using firebase-admin
+
+Extract phone number
+
+Find or create user in database
+
+Issue internal JWT
+
+Attach user to request
+
+All protected routes must rely on internal JWT after verification.
+
+3️⃣ FIX NOTIFICATIONS NOT SHOWING
+
+Ensure:
+
+expo_push_token is saved correctly
+
+token registration endpoint requires JWT
+
+token stored in users.expo_push_token
+
+When sending notification:
+
+Ignore null tokens
+
+Log errors
+
+Do not crash server
+
+Ensure notifications trigger on:
+
+Booking creation
+
+Booking cancellation
+
+Reminder (cron)
+
+4️⃣ FIX BOOKING NOT APPEARING FOR VENUE OWNER
+
+On booking creation:
+
+Save booking with correct:
+
+user_id (player)
+
+venue_id
+
+Ensure venues.owner_id is linked correctly
+
+Owner dashboard must fetch bookings using:
+
+SELECT * FROM bookings
+JOIN venues ON bookings.venue_id = venues.id
+WHERE venues.owner_id = CURRENT_OWNER_ID
+
+Fix any incorrect filtering.
+
+5️⃣ FIX BOOKING CANCELLATION FROM BOTH SIDES
+
+Ensure:
+
+Player can cancel if status = confirmed
+
+Owner can cancel
+
+Update status = cancelled
+
+Trigger notification to other party
+
+Prevent double cancellation
+
+6️⃣ ALLOW OWNER TO DEFINE AVAILABLE DURATIONS
+
+Modify venues table:
+
+ALTER TABLE venues ADD COLUMN IF NOT EXISTS allowed_durations TEXT;
+
+Store as JSON array:
+
+Example:
+
+[1, 1.5, 2, 3, 4]
+
+During venue registration:
+
+Owner selects allowed durations.
+
+During booking:
+
+Frontend must allow only durations from allowed_durations.
+
+Server must validate duration exists in venue.allowed_durations.
+
+Reject invalid duration.
+
+7️⃣ FIX TIME SLOT LOGIC
+
+Ensure:
+
+No overlapping bookings
+
+Validate start_time + duration does not conflict
+
+Use proper datetime comparison
+
+Block double booking
+
+8️⃣ FIX CANCELLATION NOT WORKING
+
+Ensure cancel route:
+
+PATCH /bookings/:id/cancel
+
+Validations:
+
+Only booking owner OR venue owner
+
+Status must be confirmed
+
+Update status
+
+Send notification
+
+Return updated booking.
+
+9️⃣ ADD GENDER FIELD TO PLAYER REGISTRATION
+
+Update users table:
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(10);
+
+Allowed values:
+
+male
+
+female
+
+null
+
+Optional field.
+
+Ensure:
+
+Saved during registration
+
+Returned in profile
+
+Editable
+
+🔟 ENSURE ALL DATA IS PERSISTED
+
+Ensure database saves:
+
+full_name
+
+phone
+
+role
+
+gender
+
+birth_date
+
+device_id
+
+expo_push_token
+
+no_show_count
+
+Do not rely on frontend state.
+
+Always use database as source of truth.
+
+1️⃣1️⃣ ADMIN PANEL DATA SYNC
+
+Ensure:
+
+All bookings visible in admin
+
+Users visible
+
+Venues visible
+
+Gender field appears
+
+Booking status updates reflected instantly
+
+1️⃣2️⃣ CRON REMINDER FIX
+
+Ensure cron job:
+
+Runs every 5 minutes
+
+Finds bookings within 60 minutes
+
+reminder_sent = false
+
+Sends notification
+
+Sets reminder_sent = true
+
+1️⃣3️⃣ DO NOT CHANGE DESIGN
+
+Important:
+
+Do not modify layout
+
+Do not modify colors
+
+Do not change navigation
+
+Only fix logic
+
+FINAL RESULT REQUIRED
+
+After applying:
+
+✔ OTP only authentication
+✔ No passwords anywhere
+✔ Gender field saved
+✔ Booking visible to owner
+✔ Cancellation works from both sides
+✔ Owner controls allowed durations
+✔ No overlapping bookings
+✔ Notifications working
+✔ Data stored correctly
+✔ Admin sees everything
+
+Maintain clean modular architecture

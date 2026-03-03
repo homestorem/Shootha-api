@@ -36,6 +36,8 @@ export const authUsers = pgTable("auth_users", {
   venueImages: text("venue_images"),
   ownerDeviceLat: text("owner_device_lat"),
   ownerDeviceLon: text("owner_device_lon"),
+  expoPublicToken: text("expo_public_token"),
+  gender: text("gender"),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

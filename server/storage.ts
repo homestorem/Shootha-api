@@ -23,6 +23,7 @@ export type OwnerBooking = {
   status: "upcoming" | "active" | "completed" | "cancelled";
   source: "app" | "manual";
   createdAt: string;
+  reminderSent?: boolean;
 };
 
 type InternalUser = AuthUser & { deletedAt?: string };
@@ -59,12 +60,14 @@ export interface IStorage {
     venueImages?: string[];
     ownerDeviceLat?: string;
     ownerDeviceLon?: string;
+    gender?: string;
   }): Promise<AuthUser>;
   storeOtp(phone: string, otp: string): Promise<void>;
   verifyOtp(phone: string, otp: string): Promise<boolean>;
   createSupportMessage(data: { userId: string; subject: string; message: string }): Promise<SupportMessage>;
   getSupportMessages(): Promise<SupportMessage[]>;
   getAllOwners(): Promise<AuthUser[]>;
+  getAllAuthUsers(): Promise<AuthUser[]>;
   getOwnerBookings(ownerId: string): Promise<OwnerBooking[]>;
   getOwnerBookingById(id: string): Promise<OwnerBooking | undefined>;
   createOwnerBooking(data: Omit<OwnerBooking, "id" | "createdAt">): Promise<OwnerBooking>;
@@ -172,6 +175,7 @@ export class MemStorage implements IStorage {
     venueImages?: string[];
     ownerDeviceLat?: string;
     ownerDeviceLon?: string;
+    gender?: string;
   }): Promise<AuthUser> {
     const id = randomUUID();
     let passwordHash: string | null = null;
@@ -201,6 +205,8 @@ export class MemStorage implements IStorage {
       venueImages: data.venueImages ? JSON.stringify(data.venueImages) : null,
       ownerDeviceLat: data.ownerDeviceLat ?? null,
       ownerDeviceLon: data.ownerDeviceLon ?? null,
+      expoPublicToken: null,
+      gender: data.gender ?? null,
     };
     this.authUsers.set(id, user);
     return user;
@@ -254,6 +260,10 @@ export class MemStorage implements IStorage {
     return Array.from(this.authUsers.values()).filter(
       (u) => !u.deletedAt && u.role === "owner" && u.venueName
     );
+  }
+
+  async getAllAuthUsers(): Promise<AuthUser[]> {
+    return Array.from(this.authUsers.values()).filter((u) => !u.deletedAt);
   }
 
   async getOwnerBookings(ownerId: string): Promise<OwnerBooking[]> {

@@ -9,6 +9,7 @@ import React, {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { fetch } from "expo/fetch";
+import { registerPushToken, setupNotificationHandler } from "@/lib/notifications";
 
 export type UserRole = "player" | "owner" | "guest" | "supervisor";
 
@@ -89,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    setupNotificationHandler().catch(() => {});
     initAuth();
   }, []);
 
@@ -102,6 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (storedToken && storedUser) {
         setToken(storedToken);
         setUser(JSON.parse(storedUser));
+        registerPushToken(storedToken).catch(() => {});
       } else if (storedGuest === "true") {
         setIsGuest(true);
       }
@@ -155,6 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(data.token);
     setUser(data.user);
     setIsGuest(false);
+    registerPushToken(data.token).catch(() => {});
   };
 
   const register = async (
@@ -181,6 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(data.token);
     setUser(data.user);
     setIsGuest(false);
+    registerPushToken(data.token).catch(() => {});
   };
 
   const continueAsGuest = async (): Promise<void> => {

@@ -1,0 +1,195 @@
+REPLIT AI MASTER SCRIPT — EXPO PUSH NOTIFICATIONS SYSTEM
+
+Project: Shoot’ha
+Task: Implement full Expo Push Notification system integrated with bookings and admin panel.
+
+Do NOT modify existing auth or booking logic.
+Extend system safely.
+
+1️⃣ DATABASE UPDATE
+
+Add new column to users table:
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS expo_push_token TEXT;
+
+Also add to bookings table:
+
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN DEFAULT FALSE;
+2️⃣ CREATE NOTIFICATION UTILITY
+
+Create file:
+
+/server/utils/expoPush.js
+
+Inside it:
+
+Use fetch or axios
+
+Send POST request to:
+
+https://exp.host/--/api/v2/push/send
+
+Function must:
+
+Accept:
+
+title
+
+body
+
+tokens (array)
+
+optional image
+
+Send notifications in chunks (max 100 per request)
+
+Handle errors safely
+
+3️⃣ CREATE SAVE TOKEN ENDPOINT
+
+Create route:
+
+POST /notifications/register-token
+
+Requires JWT.
+
+Body:
+
+{
+  "expo_push_token": "ExponentPushToken[...]"
+}
+
+Server:
+
+Validate token format
+
+Save token to users.expo_push_token
+
+4️⃣ AUTO NOTIFICATION — NEW BOOKING
+
+Inside booking creation logic:
+
+After successful booking:
+
+Get venue owner user
+
+If owner has expo_push_token
+
+Send notification:
+
+Title:
+حجز جديد ⚽
+
+Body:
+تم حجز الساعة {time} بتاريخ {date}
+
+5️⃣ AUTO NOTIFICATION — BOOKING CANCELLATION
+
+Inside booking cancellation logic:
+
+Notify:
+
+The other party (player or owner)
+
+Title:
+تم إلغاء الحجز
+
+Body:
+تم إلغاء حجز الساعة {time}
+
+6️⃣ AUTO REMINDER — 1 HOUR BEFORE MATCH
+
+Install:
+
+npm install node-cron
+
+Create cron job in server:
+
+Run every 5 minutes
+
+Find bookings:
+
+status = confirmed
+
+start_time within next 60 minutes
+
+reminder_sent = false
+
+Send notification:
+
+Title:
+مبارتك بعد ساعة ⚽
+
+Body:
+استعد لمباراتك في ملعب {venue_name}
+
+After sending:
+Set reminder_sent = true
+
+7️⃣ ADMIN BROADCAST NOTIFICATIONS
+
+Create admin-only endpoint:
+
+POST /admin/send-notification
+
+Body:
+
+{
+  "title": "عرض خاص",
+  "body": "خصم 20%",
+  "target": "players",
+  "image": "optional_url"
+}
+
+Logic:
+
+Validate role = ADMIN
+
+Fetch users by role if target specified
+
+Collect expo_push_tokens
+
+Send via expoPush utility
+
+8️⃣ FRONTEND — EXPO APP INTEGRATION
+
+Inside React Native Expo app:
+
+Install:
+
+npx expo install expo-notifications
+
+On app start after login:
+
+Request notification permission
+
+Get Expo Push Token
+
+Send token to:
+
+POST /notifications/register-token
+
+Include JWT in header.
+
+9️⃣ SECURITY
+
+Require JWT for token registration
+
+Validate role for admin broadcast
+
+Do not crash server if token invalid
+
+Ignore null tokens
+
+🔟 FINAL RESULT
+
+System must support:
+
+✔ Notification on new booking
+✔ Notification on cancellation
+✔ Reminder before match
+✔ Admin promotional notifications with image
+✔ Role-based targeting
+✔ Scalable token sending
+
+Do not break existing booking or auth system

@@ -3,6 +3,8 @@ import { createServer, type Server } from "node:http";
 import { storage } from "./storage";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
+import cron from "node-cron";
+import { sendPushNotifications, sendPushToUser } from "./utils/expoPush";
 
 const JWT_SECRET = process.env.SESSION_SECRET || "shootha_secret_2026";
 const SUPERVISOR_MASTER_KEY = process.env.SUPERVISOR_MASTER_KEY || "shootha_supervisor_2026";
@@ -107,7 +109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         venueName, areaName, fieldSize, bookingPrice,
         hasBathrooms, hasMarket, latitude, longitude,
         venueImages, ownerDeviceLat, ownerDeviceLon,
-        userLat, userLon,
+        userLat, userLon, gender,
       } = req.body as any;
 
       if (!phone || !name || !role || !otp) {
@@ -142,6 +144,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         venueImages,
         ownerDeviceLat,
         ownerDeviceLon,
+        gender,
       });
       const token = signToken(user.id, user.role);
       return res.json({ token, user: safeUser(user) });
@@ -360,6 +363,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/notifications/register-token", authMiddleware, async (req, res) => {
+    try {
+      const userId = (req as any).userId;
+      const { expoPublicToken } = req.body as { expoPublicToken: string };
+      if (!expoPublicToken || typeof expoPublicToken !== "string") {
+        return res.status(400).json({ message: "التوكن مطلوب" });
+      }
+      if (
+        !expoPublicToken.startsWith("ExponentPushToken[") &&
+        !expoPublicToken.startsWith("ExpoPushToken[")
+      ) {
+        return res.status(400).json({ message: "صيغة التوكن غير صحيحة" });
+      }
+      await storage.updateAuthUser(userId, { expoPublicToken });
+      console.log(`[PUSH] Token registered for user ${userId}`);
+      return res.json({ message: "تم حفظ التوكن" });
+    } catch {
+      return res.status(500).json({ message: "خطأ في الخادم" });
+    }
+  });
+
+  app.post("/api/admin/send-notification", authMiddleware, async (req, res) => {
+    try {
+      const role = (req as any).userRole;
+      if (role !== "supervisor" && role !== "owner") {
+        return res.status(403).json({ message: "غير مصرح" });
+      }
+      const { title, body, target, image } = req.body as {
+        title: string;
+        body: string;
+        target?: "players" | "owners" | "all";
+        image?: string;
+      };
+      if (!title?.trim() || !body?.trim()) {
+        return res.status(400).json({ message: "العنوان والنص مطلوبان" });
+      }
+      const allUsers = await storage.getAllAuthUsers();
+      let targets = allUsers;
+      if (target === "players") targets = allUsers.filter((u) => u.role === "player");
+      else if (target === "owners") targets = allUsers.filter((u) => u.role === "owner");
+      const tokens = targets
+        .map((u) => u.expoPublicToken)
+        .filter((t): t is string => !!t);
+      await sendPushNotifications(tokens, title.trim(), body.trim(), undefined, image);
+      console.log(`[PUSH] Admin broadcast to ${tokens.length} users`);
+      return res.json({ message: `تم إرسال الإشعار إلى ${tokens.length} مستخدم`, count: tokens.length });
+    } catch (e: any) {
+      return res.status(500).json({ message: e?.message ?? "خطأ في الخادم" });
+    }
+  });
+
   app.post("/api/auth/supervisor-token", async (req, res) => {
     try {
       const { masterKey, expiryMinutes = 120 } = req.body as {
@@ -540,6 +594,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         source,
       });
       console.log(`[BOOKING] New booking by owner ${userId}: ${playerName} on ${date} at ${time}`);
+      if (playerPhone) {
+        const player = await storage.getAuthUserByPhone(playerPhone.replace(/\D/g, "").slice(-10).padStart(10, "0")).catch(() => null)
+          ?? await storage.getAuthUserByPhone(playerPhone.trim()).catch(() => null);
+        if (player?.expoPublicToken) {
+          sendPushToUser(
+            player.expoPublicToken,
+            "حجز جديد ⚽",
+            `تم تأكيد حجزك الساعة ${time} بتاريخ ${date} في ${user.venueName ?? "الملعب"}`,
+            { bookingId: booking.id }
+          ).catch(() => {});
+        }
+      }
       return res.status(201).json({ message: "تم إضافة الحجز بنجاح", booking });
     } catch (e: any) {
       console.error("Create booking error:", e);
@@ -578,6 +644,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!booking) return res.status(404).json({ message: "الحجز غير موجود" });
       if (booking.ownerId !== userId) return res.status(403).json({ message: "غير مصرح" });
       await storage.cancelOwnerBooking(id);
+      if (booking.playerPhone) {
+        const player = await storage.getAuthUserByPhone(booking.playerPhone.trim()).catch(() => null);
+        if (player?.expoPublicToken) {
+          sendPushToUser(
+            player.expoPublicToken,
+            "تم إلغاء الحجز",
+            `تم إلغاء حجزك الساعة ${booking.time} بتاريخ ${booking.date}`,
+            { bookingId: booking.id }
+          ).catch(() => {});
+        }
+      }
       return res.json({ message: "تم إلغاء الحجز" });
     } catch {
       return res.status(500).json({ message: "خطأ في الخادم" });
@@ -639,6 +716,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch {
       return res.status(500).json({ message: "خطأ في الخادم" });
+    }
+  });
+
+  cron.schedule("*/5 * * * *", async () => {
+    try {
+      const now = new Date();
+      const todayStr = now.toISOString().split("T")[0];
+      const owners = await storage.getAllOwners();
+      for (const owner of owners) {
+        const bookings = await storage.getOwnerBookings(owner.id);
+        const upcoming = bookings.filter(
+          (b) =>
+            b.status === "upcoming" &&
+            b.date === todayStr &&
+            !b.reminderSent
+        );
+        for (const booking of upcoming) {
+          const [bHour, bMin] = booking.time.split(":").map(Number);
+          const bookingTime = new Date(now);
+          bookingTime.setHours(bHour, bMin ?? 0, 0, 0);
+          const diffMs = bookingTime.getTime() - now.getTime();
+          const diffMin = diffMs / 60000;
+          if (diffMin > 0 && diffMin <= 60) {
+            const tokens: string[] = [];
+            if (owner.expoPublicToken) tokens.push(owner.expoPublicToken);
+            if (booking.playerPhone) {
+              const player = await storage.getAuthUserByPhone(booking.playerPhone.trim()).catch(() => null);
+              if (player?.expoPublicToken) tokens.push(player.expoPublicToken);
+            }
+            if (tokens.length > 0) {
+              await sendPushNotifications(
+                tokens,
+                "مبارتك بعد ساعة ⚽",
+                `استعد لمباراتك في ${owner.venueName ?? "الملعب"} الساعة ${booking.time}`,
+                { bookingId: booking.id }
+              );
+            }
+            await storage.updateOwnerBooking(booking.id, { reminderSent: true });
+            console.log(`[CRON] Reminder sent for booking ${booking.id}`);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[CRON] Reminder error:", e);
     }
   });
 
