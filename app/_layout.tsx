@@ -175,8 +175,6 @@ function AppNavigator() {
         <Stack.Screen name="auth/player/login" options={{ headerShown: false, animation: "slide_from_bottom" }} />
         <Stack.Screen name="auth/player/register" options={{ headerShown: false, animation: "slide_from_right" }} />
         <Stack.Screen name="auth/player/verify-otp" options={{ headerShown: false, animation: "slide_from_right" }} />
-        <Stack.Screen name="auth/player/forgot-password" options={{ headerShown: false, animation: "slide_from_right" }} />
-        <Stack.Screen name="auth/player/new-password" options={{ headerShown: false, animation: "slide_from_right" }} />
         <Stack.Screen name="auth/owner/login" options={{ headerShown: false, animation: "slide_from_bottom" }} />
         <Stack.Screen name="auth/owner/register" options={{ headerShown: false, animation: "slide_from_right" }} />
         <Stack.Screen name="auth/owner/verify-otp" options={{ headerShown: false, animation: "slide_from_right" }} />

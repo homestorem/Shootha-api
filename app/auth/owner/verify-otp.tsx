@@ -78,7 +78,6 @@ export default function OwnerVerifyOtpScreen() {
           (params.role ?? "owner") as UserRole,
           otp,
           {
-            password: pending?.password,
             venueName: pending?.venueName,
             areaName: pending?.areaName,
             fieldSize: pending?.fieldSize,

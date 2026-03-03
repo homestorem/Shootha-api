@@ -20,22 +20,22 @@ export type AuthUser = {
   role: UserRole;
   dateOfBirth?: string | null;
   profileImage?: string | null;
+  gender?: string | null;
 };
 
 export type PendingPlayerData = {
   name: string;
   phone: string;
-  password: string;
   dateOfBirth?: string;
   profileImage?: string;
   userLat?: string;
   userLon?: string;
+  gender?: string;
 };
 
 export type PendingOwnerData = {
   name: string;
   phone: string;
-  password: string;
   venueName: string;
   areaName: string;
   fieldSize: string;
@@ -71,7 +71,7 @@ interface AuthContextValue {
     dateOfBirth?: string;
     profileImage?: string;
   }) => Promise<void>;
-  deleteAccount: (password: string) => Promise<void>;
+  deleteAccount: () => Promise<void>;
   sendPhoneChangeOtp: (newPhone: string) => Promise<{ devOtp?: string }>;
   updatePhone: (newPhone: string, otp: string) => Promise<void>;
 }
@@ -235,8 +235,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedUser));
   };
 
-  const deleteAccount = async (password: string): Promise<void> => {
-    await authFetch("DELETE", "/api/user/account", { password });
+  const deleteAccount = async (): Promise<void> => {
+    await authFetch("DELETE", "/api/user/account");
     await logout();
   };
 

@@ -44,7 +44,6 @@ export default function OwnerSettingsScreen() {
   const [supportSubject, setSupportSubject] = useState("");
   const [supportMessage, setSupportMessage] = useState("");
   const [isSendingSupport, setIsSendingSupport] = useState(false);
-  const [deletePassword, setDeletePassword] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
@@ -149,17 +148,12 @@ export default function OwnerSettingsScreen() {
   };
 
   const handleDeleteAccount = async () => {
-    if (!deletePassword.trim()) {
-      Alert.alert("خطأ", "يرجى إدخال كلمة المرور");
-      return;
-    }
     setIsDeletingAccount(true);
     try {
-      await deleteAccount(deletePassword);
+      await deleteAccount();
       router.replace("/select-role");
     } catch (e: any) {
       Alert.alert("خطأ", e.message);
-      setDeletePassword("");
     } finally {
       setIsDeletingAccount(false);
     }
@@ -390,21 +384,9 @@ export default function OwnerSettingsScreen() {
             <Text style={[s.deleteWarning, { color: "#E74C3C" }]}>
               سيتم حذف حسابك نهائياً. لن تتمكن من استعادته.
             </Text>
-            <TextInput
-              value={deletePassword}
-              onChangeText={setDeletePassword}
-              placeholder="أدخل كلمة المرور للتأكيد"
-              placeholderTextColor={colors.textTertiary}
-              secureTextEntry
-              style={[s.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: "#E74C3C44" }]}
-              textAlign="right"
-            />
             <View style={s.deleteRow}>
               <Pressable
-                onPress={() => {
-                  setShowDeleteConfirm(false);
-                  setDeletePassword("");
-                }}
+                onPress={() => setShowDeleteConfirm(false)}
                 style={[s.cancelDeleteBtn, { borderColor: colors.border }]}
               >
                 <Text style={[s.cancelDeleteText, { color: colors.textSecondary }]}>إلغاء</Text>

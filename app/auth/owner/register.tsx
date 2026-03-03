@@ -38,8 +38,6 @@ export default function OwnerRegisterScreen() {
   const [name, setName] = useState("");
   const [venueName, setVenueName] = useState("");
   const [phone, setPhone] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [areaName, setAreaName] = useState("");
   const [fieldSize, setFieldSize] = useState(FIELD_SIZES[0]);
   const [bookingPrice, setBookingPrice] = useState("");
@@ -53,8 +51,6 @@ export default function OwnerRegisterScreen() {
   const [nameError, setNameError] = useState("");
   const [venueNameError, setVenueNameError] = useState("");
   const [phoneError, setPhoneError] = useState("");
-  const [passwordError, setPasswordError] = useState("");
-  const [confirmPasswordError, setConfirmPasswordError] = useState("");
   const [areaNameError, setAreaNameError] = useState("");
   const [priceError, setPriceError] = useState("");
   const [locationError, setLocationError] = useState("");
@@ -115,18 +111,6 @@ export default function OwnerRegisterScreen() {
       setPhoneError("رقم الهاتف غير صحيح"); valid = false;
     } else setPhoneError("");
 
-    if (!password.trim()) {
-      setPasswordError("كلمة المرور مطلوبة"); valid = false;
-    } else if (password.length < 6) {
-      setPasswordError("كلمة المرور يجب أن تكون 6 أحرف على الأقل"); valid = false;
-    } else setPasswordError("");
-
-    if (!confirmPassword.trim()) {
-      setConfirmPasswordError("تأكيد كلمة المرور مطلوب"); valid = false;
-    } else if (password !== confirmPassword) {
-      setConfirmPasswordError("كلمتا المرور غير متطابقتين"); valid = false;
-    } else setConfirmPasswordError("");
-
     if (!areaName.trim()) { setAreaNameError("اسم المنطقة مطلوب"); valid = false; } else setAreaNameError("");
 
     const priceNum = parseFloat(bookingPrice);
@@ -164,7 +148,6 @@ export default function OwnerRegisterScreen() {
       const pendingData: PendingOwnerData = {
         name: name.trim(),
         phone: phone.trim(),
-        password,
         venueName: venueName.trim(),
         areaName: areaName.trim(),
         fieldSize,
@@ -240,26 +223,6 @@ export default function OwnerRegisterScreen() {
             onChangeText={(v) => { setPhone(v); setPhoneError(""); }}
             keyboardType="phone-pad"
             error={phoneError}
-          />
-
-          <AuthInput
-            label="كلمة المرور"
-            icon="lock-closed-outline"
-            placeholder="••••••••"
-            value={password}
-            onChangeText={(v) => { setPassword(v); setPasswordError(""); }}
-            isPassword
-            error={passwordError}
-          />
-
-          <AuthInput
-            label="تأكيد كلمة المرور"
-            icon="lock-closed-outline"
-            placeholder="••••••••"
-            value={confirmPassword}
-            onChangeText={(v) => { setConfirmPassword(v); setConfirmPasswordError(""); }}
-            isPassword
-            error={confirmPasswordError}
           />
 
           <AuthInput

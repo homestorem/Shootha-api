@@ -9,7 +9,6 @@ import {
   Platform,
   Alert,
   Modal,
-  TextInput,
   Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -33,25 +32,19 @@ function DeleteAccountModal({
   const { colors } = useTheme();
   const { t } = useLang();
   const { deleteAccount } = useAuth();
-  const [password, setPassword] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
 
   const handleClose = () => {
-    setPassword("");
     setError("");
     onClose();
   };
 
   const handleDelete = async () => {
-    if (!password.trim()) {
-      setError(t("fieldRequired"));
-      return;
-    }
     setIsDeleting(true);
     setError("");
     try {
-      await deleteAccount(password);
+      await deleteAccount();
       router.replace("/select-role");
     } catch (e: any) {
       setError(e?.message ?? "حدث خطأ");
@@ -73,21 +66,6 @@ function DeleteAccountModal({
           <Text style={[modalStyles.cardMsg, { color: colors.textSecondary }]}>
             {t("deleteConfirmMsg")}
           </Text>
-          <Text style={[modalStyles.inputLabel, { color: colors.textSecondary }]}>
-            {t("enterPassword")}
-          </Text>
-          <TextInput
-            style={[
-              modalStyles.input,
-              { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border },
-            ]}
-            secureTextEntry
-            value={password}
-            onChangeText={(v) => { setPassword(v); setError(""); }}
-            placeholder={t("passwordPlaceholder")}
-            placeholderTextColor={colors.textTertiary}
-            autoCapitalize="none"
-          />
           {!!error && (
             <Text style={[modalStyles.errorText, { color: Colors.destructive }]}>{error}</Text>
           )}

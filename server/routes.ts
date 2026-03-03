@@ -2,7 +2,6 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "node:http";
 import { storage } from "./storage";
 import jwt from "jsonwebtoken";
-import bcrypt from "bcryptjs";
 import cron from "node-cron";
 import { sendPushNotifications, sendPushToUser } from "./utils/expoPush";
 
@@ -25,6 +24,7 @@ function safeUser(user: any) {
     role: user.role,
     dateOfBirth: user.dateOfBirth ?? null,
     profileImage: user.profileImage ?? null,
+    gender: user.gender ?? null,
   };
 }
 
@@ -115,9 +115,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!phone || !name || !role || !otp) {
         return res.status(400).json({ message: "جميع الحقول مطلوبة" });
       }
-      if (!password) {
-        return res.status(400).json({ message: "كلمة المرور مطلوبة" });
-      }
       const existingPhone = await storage.getAuthUserByPhone(phone);
       if (existingPhone) {
         return res.status(409).json({ message: "هذا الرقم مسجل مسبقاً" });
@@ -136,7 +133,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const playerLon = role === "player" ? (userLon ?? longitude) : longitude;
       const user = await storage.createAuthUser({
         phone, name, role, deviceId,
-        password, dateOfBirth, profileImage,
+        dateOfBirth, profileImage,
         venueName, areaName, fieldSize, bookingPrice,
         hasBathrooms, hasMarket,
         latitude: playerLat,
@@ -200,43 +197,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/reset-password", async (req, res) => {
-    try {
-      const { phone, otp, newPassword } = req.body as {
-        phone: string;
-        otp: string;
-        newPassword: string;
-      };
-      if (!phone || !otp || !newPassword) {
-        return res.status(400).json({ message: "بيانات ناقصة" });
-      }
-      if (newPassword.length < 6) {
-        return res.status(400).json({ message: "كلمة المرور يجب أن تكون 6 أحرف على الأقل" });
-      }
-      const otpValid = await storage.verifyOtp(phone, otp);
-      if (!otpValid) {
-        return res.status(400).json({ message: "رمز التحقق غير صحيح أو منتهي الصلاحية" });
-      }
-      const user = await storage.getAuthUserByPhone(phone);
-      if (!user) {
-        return res.status(404).json({ message: "المستخدم غير موجود" });
-      }
-      const bcrypt = await import("bcryptjs");
-      const passwordHash = await bcrypt.hash(newPassword, 10);
-      await storage.updateAuthUser(user.id, { passwordHash });
-      return res.json({ message: "تم تغيير كلمة المرور بنجاح" });
-    } catch (e: any) {
-      return res.status(500).json({ message: e?.message ?? "خطأ في الخادم" });
-    }
-  });
 
   app.patch("/api/user/profile", authMiddleware, async (req, res) => {
     try {
       const userId = (req as any).userId;
-      const { name, dateOfBirth, profileImage } = req.body as {
+      const { name, dateOfBirth, profileImage, gender } = req.body as {
         name?: string;
         dateOfBirth?: string;
         profileImage?: string;
+        gender?: string;
       };
       if (name !== undefined && name.trim().length < 2) {
         return res.status(400).json({ message: "الاسم يجب أن يكون حرفين على الأقل" });
@@ -245,6 +214,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         name: name?.trim(),
         dateOfBirth,
         profileImage,
+        gender,
       });
       return res.json({ message: "تم تحديث الملف الشخصي", user: safeUser(updated) });
     } catch (e: any) {
@@ -255,20 +225,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/user/account", authMiddleware, async (req, res) => {
     try {
       const userId = (req as any).userId;
-      const { password } = req.body as { password: string };
-      if (!password) {
-        return res.status(400).json({ message: "كلمة المرور مطلوبة" });
-      }
       const user = await storage.getAuthUserById(userId);
       if (!user) {
         return res.status(404).json({ message: "المستخدم غير موجود" });
-      }
-      if (!user.passwordHash) {
-        return res.status(400).json({ message: "لا يمكن التحقق من كلمة المرور" });
-      }
-      const valid = await bcrypt.compare(password, user.passwordHash);
-      if (!valid) {
-        return res.status(401).json({ message: "كلمة المرور غير صحيحة" });
       }
       if (user.role === "owner") {
         const bookings = await storage.getOwnerBookings(userId);

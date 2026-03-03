@@ -28,15 +28,12 @@ export default function PlayerRegisterScreen() {
   const [name, setName] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [phone, setPhone] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [gender, setGender] = useState<"male" | "female" | "">("");
   const [profileImageUri, setProfileImageUri] = useState<string | null>(null);
 
   const [nameError, setNameError] = useState("");
   const [dobError, setDobError] = useState("");
   const [phoneError, setPhoneError] = useState("");
-  const [passwordError, setPasswordError] = useState("");
-  const [confirmPasswordError, setConfirmPasswordError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
@@ -82,22 +79,6 @@ export default function PlayerRegisterScreen() {
       valid = false;
     } else setPhoneError("");
 
-    if (!password.trim()) {
-      setPasswordError("كلمة المرور مطلوبة");
-      valid = false;
-    } else if (password.length < 6) {
-      setPasswordError("كلمة المرور يجب أن تكون 6 أحرف على الأقل");
-      valid = false;
-    } else setPasswordError("");
-
-    if (!confirmPassword.trim()) {
-      setConfirmPasswordError("تأكيد كلمة المرور مطلوب");
-      valid = false;
-    } else if (password !== confirmPassword) {
-      setConfirmPasswordError("كلمتا المرور غير متطابقتين");
-      valid = false;
-    } else setConfirmPasswordError("");
-
     return valid;
   };
 
@@ -121,11 +102,11 @@ export default function PlayerRegisterScreen() {
       const pendingData: PendingPlayerData = {
         name: name.trim(),
         phone: phone.trim(),
-        password,
         dateOfBirth: dateOfBirth.trim(),
         profileImage: profileImageUri ?? undefined,
         userLat,
         userLon,
+        gender: gender || undefined,
       };
       await AsyncStorage.setItem(PENDING_REG_KEY, JSON.stringify(pendingData));
 
@@ -197,25 +178,25 @@ export default function PlayerRegisterScreen() {
             error={phoneError}
           />
 
-          <AuthInput
-            label="كلمة المرور"
-            icon="lock-closed-outline"
-            placeholder="••••••••"
-            value={password}
-            onChangeText={(v) => { setPassword(v); setPasswordError(""); }}
-            isPassword
-            error={passwordError}
-          />
-
-          <AuthInput
-            label="تأكيد كلمة المرور"
-            icon="lock-closed-outline"
-            placeholder="••••••••"
-            value={confirmPassword}
-            onChangeText={(v) => { setConfirmPassword(v); setConfirmPasswordError(""); }}
-            isPassword
-            error={confirmPasswordError}
-          />
+          <View style={styles.genderSection}>
+            <Text style={styles.genderLabel}>الجنس (اختياري)</Text>
+            <View style={styles.genderRow}>
+              <Pressable
+                style={[styles.genderBtn, gender === "male" && styles.genderBtnActive]}
+                onPress={() => setGender(gender === "male" ? "" : "male")}
+              >
+                <Ionicons name="male" size={16} color={gender === "male" ? "#000" : Colors.textSecondary} />
+                <Text style={[styles.genderBtnText, gender === "male" && styles.genderBtnTextActive]}>ذكر</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.genderBtn, gender === "female" && styles.genderBtnActiveFemale]}
+                onPress={() => setGender(gender === "female" ? "" : "female")}
+              >
+                <Ionicons name="female" size={16} color={gender === "female" ? "#fff" : Colors.textSecondary} />
+                <Text style={[styles.genderBtnText, gender === "female" && styles.genderBtnTextActiveFemale]}>أنثى</Text>
+              </Pressable>
+            </View>
+          </View>
 
           <View style={styles.imageSection}>
             <Text style={styles.imageLabel}>صورة الملف الشخصي (اختياري)</Text>
@@ -278,6 +259,19 @@ const styles = StyleSheet.create({
   title: { color: Colors.text, fontSize: 24, fontFamily: "Cairo_700Bold", textAlign: "center" },
   subtitle: { color: Colors.textSecondary, fontSize: 14, fontFamily: "Cairo_400Regular", textAlign: "center" },
   form: { gap: 16, marginBottom: 24 },
+  genderSection: { gap: 10 },
+  genderLabel: { color: Colors.textSecondary, fontSize: 13, fontFamily: "Cairo_600SemiBold" },
+  genderRow: { flexDirection: "row", gap: 12 },
+  genderBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 8, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: Colors.card, borderWidth: 1.5, borderColor: Colors.border,
+  },
+  genderBtnActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  genderBtnActiveFemale: { backgroundColor: "#E91E8C", borderColor: "#E91E8C" },
+  genderBtnText: { color: Colors.textSecondary, fontSize: 14, fontFamily: "Cairo_600SemiBold" },
+  genderBtnTextActive: { color: "#000" },
+  genderBtnTextActiveFemale: { color: "#fff" },
   imageSection: { gap: 8, alignItems: "center" },
   imageLabel: { color: Colors.textSecondary, fontSize: 13, fontFamily: "Cairo_600SemiBold", alignSelf: "flex-start" },
   imagePicker: {

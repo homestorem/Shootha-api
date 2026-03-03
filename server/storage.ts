@@ -38,7 +38,7 @@ export interface IStorage {
   updateAuthUser(id: string, updates: Partial<AuthUser>): Promise<void>;
   updateUserProfile(
     id: string,
-    data: { name?: string; dateOfBirth?: string; profileImage?: string }
+    data: { name?: string; dateOfBirth?: string; profileImage?: string; gender?: string }
   ): Promise<AuthUser>;
   softDeleteUser(id: string): Promise<void>;
   createAuthUser(data: {
@@ -135,7 +135,7 @@ export class MemStorage implements IStorage {
 
   async updateUserProfile(
     id: string,
-    data: { name?: string; dateOfBirth?: string; profileImage?: string }
+    data: { name?: string; dateOfBirth?: string; profileImage?: string; gender?: string }
   ): Promise<AuthUser> {
     const user = this.authUsers.get(id);
     if (!user || user.deletedAt) throw new Error("المستخدم غير موجود");
@@ -144,6 +144,7 @@ export class MemStorage implements IStorage {
       ...(data.name !== undefined ? { name: data.name } : {}),
       ...(data.dateOfBirth !== undefined ? { dateOfBirth: data.dateOfBirth } : {}),
       ...(data.profileImage !== undefined ? { profileImage: data.profileImage } : {}),
+      ...(data.gender !== undefined ? { gender: data.gender } : {}),
     };
     this.authUsers.set(id, updated);
     return updated;

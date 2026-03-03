@@ -99,13 +99,6 @@ export default function PlayerLoginScreen() {
           </Pressable>
         </View>
 
-        <Pressable
-          style={styles.forgotRow}
-          onPress={() => router.push("/auth/player/forgot-password")}
-        >
-          <Text style={styles.forgotLink}>نسيت كلمة المرور؟</Text>
-        </Pressable>
-
         <View style={styles.registerRow}>
           <Text style={styles.registerHint}>ليس لديك حساب؟</Text>
           <Pressable onPress={() => router.replace("/auth/player/register")}>
@@ -144,8 +137,6 @@ const styles = StyleSheet.create({
   },
   submitBtnDisabled: { backgroundColor: Colors.disabled },
   submitBtnText: { color: "#000", fontSize: 15, fontFamily: "Cairo_700Bold" },
-  forgotRow: { alignItems: "center", marginBottom: 8 },
-  forgotLink: { color: Colors.textSecondary, fontSize: 13, fontFamily: "Cairo_400Regular", textDecorationLine: "underline" },
   registerRow: { flexDirection: "row", justifyContent: "center", gap: 6, alignItems: "center" },
   registerHint: { color: Colors.textSecondary, fontSize: 14, fontFamily: "Cairo_400Regular" },
   registerLink: { color: Colors.primary, fontSize: 14, fontFamily: "Cairo_600SemiBold" },
