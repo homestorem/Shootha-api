@@ -918,24 +918,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   app.post("/api/venues", async (req, res) => {
     try {
-      const { name, location, price } = req.body;
-  
-      if (!name || !location || !price) {
-        return res.status(400).json({ error: "Missing data" });
+      if (!isFirebaseEnvConfigured()) {
+        return res.status(503).json({ message: "Firebase غير مُضبط على الخادم" });
       }
-  
-      if (!(global as any).venues) (global as any).venues = [];
-  
-      const newVenue = {
-        id: Date.now().toString(),
-        name,
-        location,
-        price,
+
+      const rawName = String(req.body?.name ?? "").trim();
+      const rawLocation = String(req.body?.location ?? "").trim();
+      const rawPrice = Number(req.body?.price ?? req.body?.pricePerHour ?? 0);
+
+      if (!rawName || !rawLocation || !Number.isFinite(rawPrice) || rawPrice <= 0) {
+        return res.status(400).json({ message: "Missing or invalid venue data" });
+      }
+
+      ensureFirebaseAdminApp();
+      const db = admin.firestore();
+      const docRef = db.collection("fields").doc();
+
+      const payload = {
+        name: rawName,
+        location: rawLocation,
+        district: rawLocation,
+        pricePerHour: Math.round(rawPrice),
+        fieldSizes: ["5 ضد 5"],
+        amenities: [] as string[],
+        imageColor: getVenueColor(docRef.id),
+        isOpen: true,
+        openHours: "08:00 – 24:00",
+        lat: 36.335,
+        lon: 43.119,
+        rating: 0,
+        reviewCount: 0,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       };
-  
-      (global as any).venues.push(newVenue);
-  
-      return res.json(newVenue);
+
+      await docRef.set(payload);
+
+      return res.status(201).json({
+        id: docRef.id,
+        ...payload,
+        createdAt: undefined,
+        updatedAt: undefined,
+      });
     } catch (e: any) {
       console.error("[POST /api/venues]", e);
       return res.status(500).json({ message: "Server error" });
