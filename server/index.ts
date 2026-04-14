@@ -227,8 +227,8 @@ async function findFirstFreePort(startPort: number, maxAttempts = 15): Promise<n
   setupErrorHandler(app);
 
   const preferredPort = parseInt(process.env.PORT || "4001", 10);
-  const port = await findFirstFreePort(preferredPort);
-  if (port !== preferredPort) {
+  const port = process.env.PORT ? preferredPort : await findFirstFreePort(preferredPort);
+  if (!process.env.PORT && port !== preferredPort) {
     log(`Port ${preferredPort} busy — using ${port}. Set EXPO_PUBLIC_API_URL=http://localhost:${port}`);
   }
   server.listen(port, "0.0.0.0", () => {
