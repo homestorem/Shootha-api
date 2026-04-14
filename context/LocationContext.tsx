@@ -3,12 +3,15 @@ import React, {
   useContext,
   useState,
   useCallback,
+  useEffect,
   ReactNode,
 } from "react";
+import { Platform } from "react-native";
 import * as Location from "expo-location";
+import { getBrowserGeolocation } from "@/lib/web-geolocation";
 
-const MOSUL_LAT = 36.335;
-const MOSUL_LON = 43.119;
+const MOSUL_LAT = 36.34;
+const MOSUL_LON = 43.13;
 
 interface LocationContextValue {
   latitude: number;
@@ -24,9 +27,32 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   const [latitude, setLatitude] = useState(MOSUL_LAT);
   const [longitude, setLongitude] = useState(MOSUL_LON);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [isLocating, setIsLocating] = useState(false);
+  const [isLocating, setIsLocating] = useState(() => Platform.OS === "web");
+
+  const hydrateWebLocation = useCallback(async () => {
+    if (Platform.OS !== "web") return;
+    setIsLocating(true);
+    try {
+      const pos = await getBrowserGeolocation();
+      setLatitude(pos.lat);
+      setLongitude(pos.lng);
+      setHasPermission(true);
+    } finally {
+      setIsLocating(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      void hydrateWebLocation();
+    }
+  }, [hydrateWebLocation]);
 
   const requestLocation = useCallback(async () => {
+    if (Platform.OS === "web") {
+      await hydrateWebLocation();
+      return;
+    }
     try {
       setIsLocating(true);
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -45,7 +71,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLocating(false);
     }
-  }, []);
+  }, [hydrateWebLocation]);
 
   return (
     <LocationContext.Provider

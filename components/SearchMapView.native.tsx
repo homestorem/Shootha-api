@@ -1,11 +1,14 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useQueryClient } from "@tanstack/react-query";
 import MapView, { Marker } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { Colors } from "@/constants/colors";
 import { Venue } from "@/context/BookingsContext";
+import { prefetchVenueDetailQuery } from "@/lib/app-data";
+import { formatIqd } from "@/lib/format-currency";
 
 const MOSUL_REGION = {
   latitude: 36.335,
@@ -17,6 +20,7 @@ const MOSUL_REGION = {
 interface Props {
   venues: Venue[];
   bottomPadding: number;
+  venueExtraParams?: Record<string, string>;
 }
 
 function VenueMarker({ name }: { name: string }) {
@@ -33,8 +37,9 @@ function VenueMarker({ name }: { name: string }) {
   );
 }
 
-export default function SearchMapView({ venues, bottomPadding }: Props) {
+export default function SearchMapView({ venues, bottomPadding, venueExtraParams }: Props) {
   const insets = useSafeAreaInsets();
+  const queryClient = useQueryClient();
   const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null);
 
   return (
@@ -49,7 +54,10 @@ export default function SearchMapView({ venues, bottomPadding }: Props) {
           <Marker
             key={venue.id}
             coordinate={{ latitude: venue.lat, longitude: venue.lon }}
-            onPress={() => setSelectedVenue(venue)}
+            onPress={() => {
+              prefetchVenueDetailQuery(queryClient, venue.id);
+              setSelectedVenue(venue);
+            }}
           >
             <VenueMarker name={venue.name} />
           </Marker>
@@ -60,7 +68,13 @@ export default function SearchMapView({ venues, bottomPadding }: Props) {
         <View style={[styles.bottomSheet, { bottom: insets.bottom + bottomPadding + 10 }]}>
           <Pressable
             style={styles.sheetContent}
-            onPress={() => router.push(`/venue/${selectedVenue.id}`)}
+            onPressIn={() => prefetchVenueDetailQuery(queryClient, selectedVenue.id)}
+            onPress={() =>
+              router.push({
+                pathname: "/venue/[id]",
+                params: { id: selectedVenue.id, ...venueExtraParams },
+              })
+            }
           >
             <View style={[styles.venueColorIcon, { backgroundColor: selectedVenue.imageColor }]}>
               <Ionicons name="football" size={22} color="rgba(255,255,255,0.7)" />
@@ -68,11 +82,16 @@ export default function SearchMapView({ venues, bottomPadding }: Props) {
             <View style={styles.venueInfo}>
               <Text style={styles.venueName}>{selectedVenue.name}</Text>
               <Text style={styles.venueLocation}>{selectedVenue.location}</Text>
+              {selectedVenue.amenities.length > 0 && (
+                <Text style={styles.venueAmenities} numberOfLines={2}>
+                  الخدمات: {selectedVenue.amenities.join("، ")}
+                </Text>
+              )}
               <View style={styles.venueMeta}>
                 <View style={[styles.openDot, { backgroundColor: selectedVenue.isOpen ? Colors.primary : Colors.destructive }]} />
                 <Text style={styles.venueStatus}>{selectedVenue.isOpen ? "مفتوح" : "مغلق"}</Text>
                 <Text style={styles.venuePrice}>
-                  {(selectedVenue.pricePerHour / 1000).toFixed(0)}k د.ع/س
+                  {formatIqd(selectedVenue.pricePerHour)}/hr
                 </Text>
                 {selectedVenue.fieldSizes.length > 0 && (
                   <Text style={styles.venueSize}>{selectedVenue.fieldSizes[0]}</Text>
@@ -175,6 +194,12 @@ const styles = StyleSheet.create({
   venueInfo: { flex: 1, gap: 3 },
   venueName: { color: Colors.text, fontSize: 15, fontFamily: "Cairo_600SemiBold" },
   venueLocation: { color: Colors.textSecondary, fontSize: 12, fontFamily: "Cairo_400Regular" },
+  venueAmenities: {
+    color: Colors.textTertiary,
+    fontSize: 11,
+    fontFamily: "Cairo_400Regular",
+    marginTop: 2,
+  },
   venueMeta: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   openDot: { width: 7, height: 7, borderRadius: 4 },
   venueStatus: { color: Colors.textSecondary, fontSize: 12, fontFamily: "Cairo_400Regular" },

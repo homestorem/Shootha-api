@@ -1,0 +1,9 @@
+{
+  "name": "server",
+  "private": true,
+  "scripts": {
+    "dev": "npm run server:dev --prefix ..",
+    "start": "npm run server:start --prefix ..",
+    "go": "npx tsx index.ts"
+  }
+}

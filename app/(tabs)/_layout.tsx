@@ -4,6 +4,7 @@ import { NativeTabs, Icon, Label } from "expo-router/unstable-native-tabs";
 import { BlurView } from "expo-blur";
 import { Platform, StyleSheet, View } from "react-native";
 import React from "react";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/context/ThemeContext";
 import { useLang } from "@/context/LanguageContext";
 
@@ -11,10 +12,7 @@ function NativeTabLayout() {
   const { t } = useLang();
   return (
     <NativeTabs>
-      <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>{t("homeTab")}</Label>
-      </NativeTabs.Trigger>
+     
       <NativeTabs.Trigger name="search">
         <Icon sf={{ default: "magnifyingglass", selected: "magnifyingglass" }} />
         <Label>{t("searchTab")}</Label>
@@ -22,6 +20,10 @@ function NativeTabLayout() {
       <NativeTabs.Trigger name="store">
         <Icon sf={{ default: "bag", selected: "bag.fill" }} />
         <Label>{t("storeTab")}</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="index">
+        <Icon sf={{ default: "house", selected: "house.fill" }} />
+        <Label>{t("homeTab")}</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="bookings">
         <Icon sf={{ default: "calendar", selected: "calendar" }} />
@@ -45,6 +47,7 @@ function ClassicTabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        sceneStyle: { backgroundColor: "transparent" },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textTertiary,
         tabBarStyle: {
@@ -75,50 +78,45 @@ function ClassicTabLayout() {
         name="index"
         options={{
           title: t("homeTab"),
-          tabBarIcon: ({ color, size }) => {
-            const { Ionicons } = require("@expo/vector-icons");
-            return <Ionicons name="home" size={size} color={color} />;
-          },
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="home" size={size} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="search"
         options={{
           title: t("searchTab"),
-          tabBarIcon: ({ color, size }) => {
-            const { Ionicons } = require("@expo/vector-icons");
-            return <Ionicons name="search" size={size} color={color} />;
-          },
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="search" size={size} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="store"
         options={{
           title: t("storeTab"),
-          tabBarIcon: ({ color, size }) => {
-            const { Ionicons } = require("@expo/vector-icons");
-            return <Ionicons name="bag-handle" size={size} color={color} />;
-          },
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="bag-handle" size={size} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="bookings"
         options={{
           title: t("bookingsTab"),
-          tabBarIcon: ({ color, size }) => {
-            const { Ionicons } = require("@expo/vector-icons");
-            return <Ionicons name="calendar" size={size} color={color} />;
-          },
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="calendar" size={size} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: t("profileTab"),
-          tabBarIcon: ({ color, size }) => {
-            const { Ionicons } = require("@expo/vector-icons");
-            return <Ionicons name="person" size={size} color={color} />;
-          },
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="person" size={size} color={color} />
+          ),
         }}
       />
     </Tabs>

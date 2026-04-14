@@ -59,6 +59,24 @@ export default function SupportScreen() {
 
         <View style={[styles.linksCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Pressable
+            style={[styles.chatBtn, { borderBottomColor: colors.border }]}
+            onPress={() => router.push("/profile/support-chat")}
+          >
+            <View style={styles.chatIcon}>
+              <Ionicons name="chatbubbles-outline" size={26} color={Colors.primary} />
+            </View>
+            <View style={styles.chatTextCol}>
+              <Text style={[styles.chatLabel, { color: colors.text }]}>
+                محادثة مباشرة مع الدعم
+              </Text>
+              <Text style={[styles.chatSub, { color: colors.textSecondary }]}>
+                ردود فورية من الفريق
+              </Text>
+            </View>
+            <Ionicons name="chevron-back" size={18} color={colors.textTertiary} />
+          </Pressable>
+
+          <Pressable
             style={[styles.whatsappBtn, { borderColor: "rgba(37,211,102,0.3)" }]}
             onPress={handleWhatsApp}
           >
@@ -105,9 +123,9 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: "rgba(46,204,113,0.1)",
+    backgroundColor: "rgba(15,157,88,0.1)",
     borderWidth: 1,
-    borderColor: "rgba(46,204,113,0.25)",
+    borderColor: "rgba(15,157,88,0.25)",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 4,
@@ -119,6 +137,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     overflow: "hidden",
   },
+  chatBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    gap: 14,
+    borderBottomWidth: 1,
+  },
+  chatIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: "rgba(15,157,88,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chatTextCol: { flex: 1, gap: 2 },
+  chatLabel: { fontSize: 15, fontFamily: "Cairo_600SemiBold" },
+  chatSub: { fontSize: 12, fontFamily: "Cairo_400Regular" },
   whatsappBtn: {
     flexDirection: "row",
     alignItems: "center",

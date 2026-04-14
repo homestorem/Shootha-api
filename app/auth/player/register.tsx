@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, createElement } from "react";
 import {
   View,
   Text,
@@ -8,291 +8,916 @@ import {
   Platform,
   Alert,
   Image,
+  Modal,
+  ImageBackground,
+  InteractionManager,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { v4 as uuidv4 } from "uuid";
 import { Colors } from "@/constants/colors";
-import { useAuth, PENDING_REG_KEY, PendingPlayerData } from "@/context/AuthContext";
-import { useLocation } from "@/context/LocationContext";
+import { PENDING_REG_KEY, useAuth } from "@/context/AuthContext";
+import { isValidEmailFormat } from "@/lib/validation";
+import { normalizeIqPhoneToE164, isValidIqMobileE164 } from "@/lib/phoneE164";
 import { AuthInput } from "@/components/AuthInput";
+import { LinearGradient } from "expo-linear-gradient";
+import RecaptchaWebMount from "@/components/RecaptchaWebMount";
+import { useLang } from "@/context/LanguageContext";
+import { RegistrationShareCodePrompt } from "@/components/RegistrationShareCodePrompt";
+
+function validateBirthDateYmd(
+  value: string,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): { ok: true } | { ok: false; message: string } {
+  const raw = value.trim();
+  if (!raw) return { ok: false, message: t("auth.dob.required") };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return { ok: false, message: t("auth.dob.format") };
+  }
+  const [y, m, d] = raw.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  if (
+    dt.getFullYear() !== y ||
+    dt.getMonth() !== m - 1 ||
+    dt.getDate() !== d
+  ) {
+    return { ok: false, message: t("auth.dob.invalid") };
+  }
+  const now = new Date();
+  if (dt > now) return { ok: false, message: t("auth.dob.future") };
+  const minAge = 10;
+  const maxAge = 100;
+  let age = now.getFullYear() - y;
+  const monthDiff = now.getMonth() - (m - 1);
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < d)) age--;
+  if (age < minAge) return { ok: false, message: t("auth.dob.minAge", { min: minAge }) };
+  if (age > maxAge) return { ok: false, message: t("auth.dob.unreasonable") };
+  return { ok: true };
+}
+
+/** YYYY-MM-DD بالتقويم المحلي — لا تستخدم toISOString() لتفادي انزياح يوم بسبب UTC */
+function formatDateLocalYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function todayLocalYmd(): string {
+  return formatDateLocalYmd(new Date());
+}
 
 export default function PlayerRegisterScreen() {
+  const { requestLoginPhoneOtp } = useAuth();
+  const { t } = useLang();
   const insets = useSafeAreaInsets();
-  const { sendOtp } = useAuth();
-  const location = useLocation();
+  const router = useRouter();
+const [dobDate, setDobDate] = useState<Date | null>(null);
+const [tempDate, setTempDate] = useState<Date | null>(null);
 
+const [showPicker, setShowPicker] = useState(false);
   const [name, setName] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
+  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [phoneError, setPhoneError] = useState("");
   const [gender, setGender] = useState<"male" | "female" | "">("");
   const [profileImageUri, setProfileImageUri] = useState<string | null>(null);
-
+const [position, setPosition] = useState("");
   const [nameError, setNameError] = useState("");
   const [dobError, setDobError] = useState("");
-  const [phoneError, setPhoneError] = useState("");
+  const [emailError, setEmailError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-
+  const [shareCode, setShareCode] = useState("");
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
+  /* اختيار صورة */
   const pickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("الإذن مطلوب", "نحتاج إذن الوصول إلى معرض الصور");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
-    if (!result.canceled && result.assets[0]) {
-      setProfileImageUri(result.assets[0].uri);
+    try {
+
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (status !== "granted") {
+        Alert.alert(t("errors.permissionRequired"), t("errors.photoPermission"));
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+
+      if (!result.canceled && result.assets?.length) {
+        setProfileImageUri(result.assets[0].uri);
+      }
+
+    } catch {
+      Alert.alert(t("auth.common.error"), t("auth.register.galleryError"));
     }
   };
 
+  /* التحقق من البيانات */
   const validate = () => {
+
     let valid = true;
 
     if (!name.trim()) {
-      setNameError("الاسم الكامل مطلوب");
+      setNameError(t("auth.register.nameRequired"));
       valid = false;
     } else setNameError("");
 
-    if (!dateOfBirth.trim()) {
-      setDobError("تاريخ الميلاد مطلوب");
-      valid = false;
-    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth.trim())) {
-      setDobError("الصيغة الصحيحة: YYYY-MM-DD");
+    const dobCheck = validateBirthDateYmd(dateOfBirth, t);
+    if (!dobCheck.ok) {
+      setDobError(dobCheck.message);
       valid = false;
     } else setDobError("");
+    if (!gender) {
+      Alert.alert(t("common.warningTitle"), t("auth.register.pickGender"));
+      return false;
+    }
 
-    if (!phone.trim()) {
-      setPhoneError("رقم الهاتف مطلوب");
+    if (!email.trim() || !isValidEmailFormat(email)) {
+      setEmailError(t("auth.register.emailInvalid"));
       valid = false;
-    } else if (phone.replace(/\D/g, "").length < 10) {
-      setPhoneError("رقم الهاتف غير صحيح");
+    } else setEmailError("");
+
+    const e164 = normalizeIqPhoneToE164(phone);
+    if (!phone.trim() || !isValidIqMobileE164(e164)) {
+      setPhoneError(t("auth.common.phoneRequiredValid"));
       valid = false;
     } else setPhoneError("");
+
+    if (!position) {
+      Alert.alert(t("common.warningTitle"), t("auth.register.pickPosition"));
+      valid = false;
+    }
 
     return valid;
   };
 
-  const handleNext = async () => {
-    if (!validate()) return;
-    setIsLoading(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    try {
-      let userLat: string | undefined;
-      let userLon: string | undefined;
-      if (Platform.OS !== "web") {
-        if (location.hasPermission === null) {
-          await location.requestLocation();
-        }
-        if (location.hasPermission !== false) {
-          userLat = String(location.latitude);
-          userLon = String(location.longitude);
-        }
-      }
+  /* الانتقال لصفحة OTP — لا ننتظر طلب الموقع هنا حتى لا يعلق الخيط أو حوار الإذن */
+const handleNext = async () => {
 
-      const pendingData: PendingPlayerData = {
+  if (!validate()) return;
+
+  setIsLoading(true);
+
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+  try {
+    const ymd = dateOfBirth.trim();
+    const [y, mo, da] = ymd.split("-").map(Number);
+    const birth = new Date(y, mo - 1, da);
+    const now = new Date();
+    let age = now.getFullYear() - birth.getFullYear();
+    const monthDiff = now.getMonth() - birth.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birth.getDate())) {
+      age--;
+    }
+
+    const emailNorm = email.trim().toLowerCase();
+    const phoneE164 = normalizeIqPhoneToE164(phone);
+
+    const sc = shareCode.trim();
+    await AsyncStorage.setItem(
+      PENDING_REG_KEY,
+      JSON.stringify({
+        id: uuidv4(),
+        email: emailNorm,
+        phone: phoneE164,
         name: name.trim(),
-        phone: phone.trim(),
-        dateOfBirth: dateOfBirth.trim(),
-        profileImage: profileImageUri ?? undefined,
-        userLat,
-        userLon,
-        gender: gender || undefined,
-      };
-      await AsyncStorage.setItem(PENDING_REG_KEY, JSON.stringify(pendingData));
+        age,
+        gender,
+        playerType: position,
+        image: null,
+        ...(sc ? { shareCode: sc } : {}),
+      }),
+    );
 
-      const res = await sendOtp(phone.trim());
+    await requestLoginPhoneOtp(phone);
+
+    const go = () =>
       router.push({
         pathname: "/auth/player/verify-otp",
-        params: {
-          phone: phone.trim(),
-          mode: "register",
-          role: "player",
-          devOtp: res.devOtp ?? "",
-        },
-      });
-    } catch (e: any) {
-      Alert.alert("خطأ", e?.message ?? "حدث خطأ، حاول مجدداً");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+        params: { phone: phoneE164, mode: "register" },
+      } as Href);
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(go, 0);
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : t("auth.common.genericError");
+    Alert.alert(t("auth.common.error"), msg);
+  } finally {
+    setIsLoading(false);
+  }
+
+};
 
   return (
-    <View style={[styles.container, { paddingTop: topPadding }]}>
-      <View style={styles.header}>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="chevron-forward" size={22} color={Colors.text} />
-        </Pressable>
-      </View>
+    <ImageBackground
+      source={require("../../../assets/images/p1.jpg")}
+      resizeMode="cover"
+      style={[styles.container, { paddingTop: topPadding }]}
+    >
+      <LinearGradient
+        colors={["rgba(0,0,0,0.15)", "rgba(0,0,0,0.45)", "rgba(0,0,0,0.72)"]}
+        style={StyleSheet.absoluteFill}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+      />
+
+      {Platform.OS === "web" ? <RecaptchaWebMount /> : null}
 
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+
         <View style={styles.heroSection}>
+
           <View style={styles.roleIcon}>
-            <Ionicons name="person-add" size={32} color={Colors.primary} />
+            <Ionicons name="person-add" size={32} color="#fff" />
           </View>
-          <Text style={styles.title}>إنشاء حساب لاعب</Text>
-          <Text style={styles.subtitle}>انضم إلى مجتمع اللاعبين في الموصل</Text>
+
+          <Text style={styles.title}>{t("auth.register.title")}</Text>
+
+          <Text style={styles.subtitle}>{t("auth.register.subtitle")}</Text>
+
+          <RegistrationShareCodePrompt value={shareCode} onChange={setShareCode} />
+
         </View>
 
         <View style={styles.form}>
-          <AuthInput
-            label="الاسم الكامل"
-            icon="person-outline"
-            placeholder="أحمد محمد"
-            value={name}
-            onChangeText={(v) => { setName(v); setNameError(""); }}
-            error={nameError}
-          />
+<AuthInput
+  label={t("auth.register.nameLabel")}
+  icon="person-outline"
+  placeholder={t("auth.register.namePlaceholder")}
+  value={name}
+  onChangeText={(v) => {
+    setName(v);
+    setNameError("");
+  }}
+  error={nameError}
+  authEmphasis
+/>
+{Platform.OS === "web" ? (
+  <View style={styles.datePicker}>
+    <Ionicons name="calendar-outline" size={18} color="#48484A" />
+    {createElement("input", {
+      type: "date",
+      value: dateOfBirth || "",
+      max: todayLocalYmd(),
+      onChange: (e: { target: { value: string } }) => {
+        const v = e.target.value;
+        setDateOfBirth(v);
+        if (v) {
+          const [y, m, d] = v.split("-").map(Number);
+          setDobDate(new Date(y, m - 1, d));
+        } else {
+          setDobDate(null);
+        }
+        const check = validateBirthDateYmd(v, t);
+        setDobError(check.ok ? "" : check.message);
+      },
+      style: {
+        flex: 1,
+        minWidth: 0,
+        padding: 12,
+        fontSize: 16,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: "rgba(0,0,0,0.15)",
+        backgroundColor: "rgba(255,255,255,0.95)",
+        color: "#1A1A1A",
+        boxSizing: "border-box",
+      },
+    })}
+  </View>
+) : (
+  <>
+    <Pressable
+      style={styles.datePicker}
+      onPress={() => {
+        setTempDate(dobDate || new Date(2000, 0, 1));
+        setShowPicker(true);
+      }}
+    >
+      <Ionicons name="calendar-outline" size={18} color="#48484A" />
 
-          <AuthInput
-            label="تاريخ الميلاد"
-            icon="calendar-outline"
-            placeholder="YYYY-MM-DD"
-            value={dateOfBirth}
-            onChangeText={(v) => { setDateOfBirth(v); setDobError(""); }}
-            keyboardType="numbers-and-punctuation"
-            error={dobError}
-          />
+      <Text style={styles.dateText}>
+        {dobDate
+          ? formatDateLocalYmd(dobDate)
+          : t("auth.register.pickDob")}
+      </Text>
+    </Pressable>
+    <Modal
+      visible={showPicker}
+      transparent
+      animationType="fade"
+    >
+      <View style={styles.dateModal}>
 
-          <AuthInput
-            label="رقم الهاتف"
-            icon="call-outline"
-            placeholder="07XX XXX XXXX"
-            value={phone}
-            onChangeText={(v) => { setPhone(v); setPhoneError(""); }}
-            keyboardType="phone-pad"
-            error={phoneError}
-          />
+        <View style={styles.dateModalContent}>
 
-          <View style={styles.genderSection}>
-            <Text style={styles.genderLabel}>الجنس (اختياري)</Text>
-            <View style={styles.genderRow}>
-              <Pressable
-                style={[styles.genderBtn, gender === "male" && styles.genderBtnActive]}
-                onPress={() => setGender(gender === "male" ? "" : "male")}
-              >
-                <Ionicons name="male" size={16} color={gender === "male" ? "#000" : Colors.textSecondary} />
-                <Text style={[styles.genderBtnText, gender === "male" && styles.genderBtnTextActive]}>ذكر</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.genderBtn, gender === "female" && styles.genderBtnActiveFemale]}
-                onPress={() => setGender(gender === "female" ? "" : "female")}
-              >
-                <Ionicons name="female" size={16} color={gender === "female" ? "#fff" : Colors.textSecondary} />
-                <Text style={[styles.genderBtnText, gender === "female" && styles.genderBtnTextActiveFemale]}>أنثى</Text>
-              </Pressable>
-            </View>
-          </View>
-
-          <View style={styles.imageSection}>
-            <Text style={styles.imageLabel}>صورة الملف الشخصي (اختياري)</Text>
-            <Pressable style={styles.imagePicker} onPress={pickImage}>
-              {profileImageUri ? (
-                <Image source={{ uri: profileImageUri }} style={styles.previewImage} />
-              ) : (
-                <View style={styles.imagePlaceholder}>
-                  <Ionicons name="camera-outline" size={28} color={Colors.textSecondary} />
-                  <Text style={styles.imagePlaceholderText}>اختر صورة</Text>
-                </View>
-              )}
-            </Pressable>
-            {profileImageUri && (
-              <Pressable onPress={() => setProfileImageUri(null)}>
-                <Text style={styles.removeImageText}>إزالة الصورة</Text>
-              </Pressable>
-            )}
+          <View style={styles.datePickerWrap}>
+            <DateTimePicker
+              value={tempDate || new Date(2000, 0, 1)}
+              mode="date"
+              display="spinner"
+              themeVariant="light"
+              {...(Platform.OS === "android"
+                ? {
+                    textColor: "#111827",
+                    accentColor: Colors.primary,
+                  }
+                : {})}
+              maximumDate={new Date()}
+              onChange={(event, selectedDate) => {
+                if (selectedDate) {
+                  setTempDate(selectedDate);
+                }
+              }}
+            />
           </View>
 
           <Pressable
-            style={[styles.submitBtn, isLoading && styles.submitBtnDisabled]}
+            style={styles.dateConfirmBtn}
+            onPress={() => {
+      if (tempDate) {
+        setDobDate(tempDate);
+
+        const y = tempDate.getFullYear();
+        const m = String(tempDate.getMonth() + 1).padStart(2, "0");
+        const d = String(tempDate.getDate()).padStart(2, "0");
+
+        const ymd = `${y}-${m}-${d}`;
+        setDateOfBirth(ymd);
+        const check = validateBirthDateYmd(ymd, t);
+        setDobError(check.ok ? "" : check.message);
+      }
+
+      setShowPicker(false);
+    }}
+          >
+            <Text style={styles.dateConfirmText}>{t("auth.register.confirmDate")}</Text>
+          </Pressable>
+
+        </View>
+
+      </View>
+    </Modal>
+  </>
+)}
+          {dobError ? <Text style={styles.fieldError}>{dobError}</Text> : null}
+          <AuthInput
+            label={t("auth.register.emailLabel")}
+            icon="mail-outline"
+            placeholder="you@example.com"
+            value={email}
+            onChangeText={(v) => {
+              setEmail(v);
+              setEmailError("");
+            }}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            error={emailError}
+            authEmphasis
+          />
+
+          <AuthInput
+            label={t("auth.common.phoneLabel")}
+            icon="call-outline"
+            placeholder={t("auth.common.phonePlaceholder")}
+            value={phone}
+            onChangeText={(v) => {
+              setPhone(v);
+              setPhoneError("");
+            }}
+            keyboardType="phone-pad"
+            error={phoneError}
+            authEmphasis
+          />
+
+          {/* الجنس */}
+
+          <View style={styles.genderSection}>
+
+            <Text style={styles.genderLabel}>{t("auth.register.gender")} </Text>
+
+            <View style={styles.genderRow}>
+
+              <Pressable
+                style={[
+                  styles.genderBtn,
+                  gender === "male" && styles.genderBtnActive
+                ]}
+                onPress={() => setGender(gender === "male" ? "" : "male")}
+              >
+
+                <Ionicons
+                  name="male"
+                  size={16}
+                  color={gender === "male" ? "#000" : Colors.textSecondary}
+                />
+
+                <Text
+                  style={[
+                    styles.genderBtnText,
+                    gender === "male" && styles.genderBtnTextActive
+                  ]}
+                >
+                  {t("auth.register.male")}
+                </Text>
+
+              </Pressable>
+
+              <Pressable
+                style={[
+                  styles.genderBtn,
+                  gender === "female" && styles.genderBtnActiveFemale
+                ]}
+                onPress={() => setGender(gender === "female" ? "" : "female")}
+              >
+
+                <Ionicons
+                  name="female"
+                  size={16}
+                  color={gender === "female" ? "#fff" : Colors.textSecondary}
+                />
+
+                <Text
+                  style={[
+                    styles.genderBtnText,
+                    gender === "female" && styles.genderBtnTextActiveFemale
+                  ]}
+                >
+                  {t("auth.register.female")}
+                </Text>
+
+              </Pressable>
+
+            </View>
+            <View style={styles.positionSection}>
+
+<Text style={styles.genderLabel}>{t("auth.register.favoritePosition")}</Text>
+
+<View style={styles.positionGrid}>
+
+{[
+  { key: "gk", labelKey: "profile.playerTypes.gk", icon: "hand-left-outline" },
+  { key: "def", labelKey: "profile.playerTypes.def", icon: "shield-outline" },
+  { key: "mid", labelKey: "profile.playerTypes.mid", icon: "sync-outline" },
+  { key: "atk", labelKey: "profile.playerTypes.atk", icon: "football-outline" },
+].map(p => (
+
+  <Pressable
+    key={p.key}
+    style={[
+      styles.positionBtn,
+      position === p.key && styles.positionBtnActive
+    ]}
+    onPress={() => setPosition(p.key)}
+  >
+<Ionicons
+name={p.icon as keyof typeof Ionicons.glyphMap}
+  size={18}
+  color={position === p.key ? "#000" : Colors.textSecondary}
+/>
+    <Text
+      style={[
+        styles.positionText,
+        position === p.key && styles.positionTextActive
+      ]}
+    >
+      {t(p.labelKey)}
+    </Text>
+
+  </Pressable>
+
+))}
+
+</View>
+
+</View>
+          </View>
+
+          {/* الصورة */}
+
+          <View style={styles.imageSection}>
+
+            <Text style={styles.imageLabel}>
+              {t("auth.register.profilePhoto")}{" "}
+            </Text>
+
+            <Pressable style={styles.imagePickerWrap} onPress={pickImage}>
+              <View style={styles.imagePicker}>
+                {profileImageUri ? (
+                  <Image
+                    source={{ uri: profileImageUri }}
+                    style={styles.previewImage}
+                  />
+                ) : (
+                  <View style={styles.imagePlaceholder}>
+                    <Ionicons
+                      name="camera-outline"
+                      size={28}
+                      color={Colors.textSecondary}
+                    />
+                    <Text style={styles.imagePlaceholderText}>
+                      {t("auth.register.choosePhoto")}
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.cameraOverlay}>
+                  <Ionicons name="camera" size={14} color="#fff" />
+                </View>
+              </View>
+            </Pressable>
+
+            {profileImageUri && (
+              <Pressable onPress={() => setProfileImageUri(null)}>
+                <Text style={styles.removeImageText}>
+                  {t("auth.register.removePhoto")}
+                </Text>
+              </Pressable>
+            )}
+
+          </View>
+
+          {/* زر الإرسال */}
+
+          <Pressable
+            style={[
+              styles.submitBtn,
+              isLoading && styles.submitBtnDisabled
+            ]}
             onPress={handleNext}
             disabled={isLoading}
           >
-            <Ionicons name={isLoading ? "hourglass-outline" : "checkmark-circle"} size={20} color="#000" />
+
+            <Ionicons
+              name={isLoading ? "hourglass-outline" : "checkmark-circle"}
+              size={20}
+              color="#000"
+            />
+
             <Text style={styles.submitBtnText}>
-              {isLoading ? "جاري الإرسال..." : "إرسال رمز التحقق"}
+              {isLoading ? t("auth.register.creating") : t("auth.register.createContinue")}
             </Text>
+
           </Pressable>
+
         </View>
 
         <View style={styles.loginRow}>
-          <Text style={styles.loginHint}>لديك حساب بالفعل؟</Text>
+
+          <Text style={styles.loginHint}>
+            {t("auth.common.haveAccount")}
+          </Text>
+
           <Pressable onPress={() => router.replace("/auth/player/login")}>
-            <Text style={styles.loginLink}>تسجيل الدخول</Text>
+            <Text style={styles.loginLink}>
+              {t("auth.common.signIn")}
+            </Text>
           </Pressable>
+
         </View>
+
       </ScrollView>
-    </View>
+
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  header: { paddingHorizontal: 16, paddingBottom: 8 },
-  backBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: Colors.card, alignItems: "center", justifyContent: "center",
-    borderWidth: 1, borderColor: Colors.border,
+
+  container: {
+    flex: 1,
+    backgroundColor: "transparent",
   },
-  content: { paddingHorizontal: 24, paddingTop: 20, paddingBottom: 40 },
-  heroSection: { alignItems: "center", gap: 12, marginBottom: 36 },
+
+ 
+
+  content: {
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 40
+  },
+
+  heroSection: {
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 36
+  },
+
   roleIcon: {
-    width: 72, height: 72, borderRadius: 36,
-    backgroundColor: "rgba(46,204,113,0.12)",
-    borderWidth: 2, borderColor: "rgba(46,204,113,0.25)",
-    alignItems: "center", justifyContent: "center",
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.4)",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  title: { color: Colors.text, fontSize: 24, fontFamily: "Cairo_700Bold", textAlign: "center" },
-  subtitle: { color: Colors.textSecondary, fontSize: 14, fontFamily: "Cairo_400Regular", textAlign: "center" },
-  form: { gap: 16, marginBottom: 24 },
-  genderSection: { gap: 10 },
-  genderLabel: { color: Colors.textSecondary, fontSize: 13, fontFamily: "Cairo_600SemiBold" },
-  genderRow: { flexDirection: "row", gap: 12 },
+
+  title: {
+    color: "#fff",
+    fontSize: 24,
+    fontFamily: "Cairo_700Bold",
+    textAlign: "center",
+    textShadowColor: "rgba(0,0,0,0.55)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 8,
+  },
+
+  subtitle: {
+    color: "rgba(255,255,255,0.98)",
+    fontSize: 14,
+    fontFamily: "Cairo_400Regular",
+    textAlign: "center",
+    lineHeight: 22,
+    textShadowColor: "rgba(0,0,0,0.5)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+
+  form: {
+    gap: 16,
+    marginBottom: 24
+  },
+
+  genderSection: {
+    gap: 10
+  },
+
+  genderLabel: {
+    color: "rgba(255,255,255,0.98)",
+    fontSize: 13,
+    fontFamily: "Cairo_600SemiBold",
+    textShadowColor: "rgba(0,0,0,0.45)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+
+  genderRow: {
+    flexDirection: "row",
+    gap: 12
+  },
+
   genderBtn: {
-    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 8, paddingVertical: 12, borderRadius: 12,
-    backgroundColor: Colors.card, borderWidth: 1.5, borderColor: Colors.border,
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.95)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.5)",
   },
-  genderBtnActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  genderBtnActiveFemale: { backgroundColor: "#E91E8C", borderColor: "#E91E8C" },
-  genderBtnText: { color: Colors.textSecondary, fontSize: 14, fontFamily: "Cairo_600SemiBold" },
-  genderBtnTextActive: { color: "#000" },
-  genderBtnTextActiveFemale: { color: "#fff" },
-  imageSection: { gap: 8, alignItems: "center" },
-  imageLabel: { color: Colors.textSecondary, fontSize: 13, fontFamily: "Cairo_600SemiBold", alignSelf: "flex-start" },
+
+  genderBtnActive: {
+    backgroundColor: "#000",
+    borderColor: "#000",
+  },
+
+  genderBtnActiveFemale: {
+    backgroundColor: "#E91E8C",
+    borderColor: "#E91E8C"
+  },
+
+  genderBtnText: {
+    color: "#1C1C1E",
+    fontSize: 14,
+    fontFamily: "Cairo_600SemiBold",
+  },
+
+  genderBtnTextActive: {
+    color: "#fff",
+  },
+
+  genderBtnTextActiveFemale: {
+    color: "#fff"
+  },
+
+  imageSection: {
+    gap: 8,
+    alignItems: "center"
+  },
+
+  imageLabel: {
+    color: "rgba(255,255,255,0.98)",
+    fontSize: 13,
+    fontFamily: "Cairo_600SemiBold",
+    alignSelf: "flex-start",
+    textShadowColor: "rgba(0,0,0,0.45)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+
   imagePicker: {
-    width: 100, height: 100, borderRadius: 50,
-    overflow: "hidden", borderWidth: 2, borderColor: Colors.border,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.5)",
     borderStyle: "dashed",
   },
+  imagePickerWrap: {
+    position: "relative",
+  },
+
   imagePlaceholder: {
-    flex: 1, alignItems: "center", justifyContent: "center",
-    backgroundColor: Colors.card, gap: 4,
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.2)",
+    gap: 4,
   },
-  imagePlaceholderText: { color: Colors.textSecondary, fontSize: 11, fontFamily: "Cairo_400Regular" },
-  previewImage: { width: "100%", height: "100%" },
-  removeImageText: { color: Colors.destructive, fontSize: 12, fontFamily: "Cairo_400Regular" },
+
+  imagePlaceholderText: {
+    color: "rgba(255,255,255,0.96)",
+    fontSize: 11,
+    fontFamily: "Cairo_400Regular",
+  },
+
+  previewImage: {
+    width: "100%",
+    height: "100%"
+  },
+  cameraOverlay: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.primary,
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+
+  removeImageText: {
+    color: Colors.destructive,
+    fontSize: 12,
+    fontFamily: "Cairo_400Regular"
+  },
+
+  fieldError: {
+    color: Colors.destructive,
+    fontSize: 13,
+    fontFamily: "Cairo_400Regular",
+    marginTop: 4,
+    marginBottom: 4,
+  },
+
   submitBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 8, backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 15, marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#000",
+    borderRadius: 14,
+    paddingVertical: 15,
+    marginTop: 8,
   },
-  submitBtnDisabled: { backgroundColor: Colors.disabled },
-  submitBtnText: { color: "#000", fontSize: 15, fontFamily: "Cairo_700Bold" },
-  loginRow: { flexDirection: "row", justifyContent: "center", gap: 6, alignItems: "center" },
-  loginHint: { color: Colors.textSecondary, fontSize: 14, fontFamily: "Cairo_400Regular" },
-  loginLink: { color: Colors.primary, fontSize: 14, fontFamily: "Cairo_600SemiBold" },
+
+  submitBtnDisabled: {
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+
+  submitBtnText: {
+    color: "#fff",
+    fontSize: 15,
+    fontFamily: "Cairo_700Bold",
+  },
+
+  loginRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 6,
+    alignItems: "center",
+  },
+
+  loginHint: {
+    color: "rgba(255,255,255,0.96)",
+    fontSize: 14,
+    fontFamily: "Cairo_400Regular",
+    textShadowColor: "rgba(0,0,0,0.4)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+
+  loginLink: {
+    color: "#fff",
+    fontSize: 14,
+    fontFamily: "Cairo_600SemiBold",
+  },
+datePicker: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 8,
+  padding: 14,
+  borderRadius: 12,
+  borderWidth: 1,
+  borderColor: "rgba(255,255,255,0.4)",
+  backgroundColor: "rgba(255,255,255,0.95)",
+},
+
+dateText: {
+  color: "#0D0D0F",
+  fontFamily: "Cairo_400Regular",
+  fontSize: 15,
+},
+
+positionSection: {
+  gap: 10
+},
+
+positionGrid: {
+  flexDirection: "row",
+  flexWrap: "wrap",
+  gap: 10
+},
+
+positionBtn: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 6,
+  paddingVertical: 10,
+  paddingHorizontal: 14,
+  borderRadius: 10,
+  borderWidth: 1,
+  borderColor: "rgba(255,255,255,0.4)",
+  backgroundColor: "rgba(255,255,255,0.95)",
+},
+
+positionBtnActive: {
+  backgroundColor: "#000",
+  borderColor: "#000",
+},
+
+positionText: {
+  fontFamily: "Cairo_600SemiBold",
+  color: "#333",
+},
+
+positionTextActive: {
+  color: "#fff",
+},
+dateModal: {
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: "rgba(0,0,0,0.5)",
+  justifyContent: "center",
+  alignItems: "center",
+},
+
+dateModalContent: {
+  backgroundColor: "#FFFFFF",
+  borderRadius: 16,
+  padding: 20,
+  width: "85%",
+  alignItems: "center",
+  overflow: "hidden",
+},
+
+datePickerWrap: {
+  width: "100%",
+  alignItems: "center",
+  justifyContent: "center",
+  backgroundColor: "#F3F4F6",
+  borderRadius: 12,
+  paddingVertical: 8,
+},
+
+dateConfirmBtn: {
+  marginTop: 10,
+  backgroundColor: Colors.primary,
+  paddingVertical: 10,
+  paddingHorizontal: 30,
+  borderRadius: 10,
+},
+
+dateConfirmText: {
+  color: "#fff",
+  fontFamily: "Cairo_700Bold",
+  fontSize: 14,
+},
 });

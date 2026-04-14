@@ -1,680 +1,941 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Pressable,
-  Switch,
-  Platform,
-  Alert,
-  Modal,
-  Image,
+View,
+Text,
+StyleSheet,
+ScrollView,
+Pressable,
+Switch,
+Alert,
+Platform,
+Share,
+Image,
+Dimensions,
+Modal,
+ActivityIndicator,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
+
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import { Colors } from "@/constants/colors";
-import { useBookings } from "@/context/BookingsContext";
+import { router, useSegments } from "expo-router";
+import { fetchWallet } from "@/lib/wallet-api";
+import { GUEST_FULL_ACCESS } from "@/constants/guestAccess";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
-import { useLang } from "@/context/LanguageContext";
-import { GuestModal } from "@/components/GuestModal";
+import { useLang, type Language } from "@/context/LanguageContext";
 import * as Haptics from "expo-haptics";
+import { NotificationsButton } from "@/components/NotificationsButton";
+import { AppBackground } from "@/components/AppBackground";
+import { useGuestPrompt } from "@/context/GuestPromptContext";
+import {
+  subscribeUserSupportChatByUserId,
+  computeUnreadSupportHint,
+} from "@/lib/firestore-support-chat";
+import { APP_DOWNLOAD_PAGE_URL } from "@/lib/app-invite-links";
 
-function DeleteAccountModal({
-  visible,
-  onClose,
-}: {
-  visible: boolean;
-  onClose: () => void;
-}) {
-  const { colors } = useTheme();
-  const { t } = useLang();
-  const { deleteAccount } = useAuth();
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [error, setError] = useState("");
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const H_PADDING = Math.max(16, Math.min(22, SCREEN_WIDTH * 0.05));
+const CARD_RADIUS = 20;
 
-  const handleClose = () => {
-    setError("");
-    onClose();
-  };
+const PROFILE_TOKENS = {
+  dark: {
+    bg: "#0D0D0D",
+    card: "#1A1A1A",
+    cardElevated: "#202020",
+    border: "rgba(255,255,255,0.08)",
+    textPrimary: "#FFFFFF",
+    textSecondary: "#FFFFFF",
+    accent: "#00E676",
+    accentSoft: "rgba(0,230,118,0.18)",
+    headerFade: "rgba(13,13,13,0.72)",
+    rowOverlay: "rgba(255,255,255,0.03)",
+  },
+  light: {
+    bg: "#F7F7F7",
+    card: "#FFFFFF",
+    cardElevated: "#FFFFFF",
+    border: "rgba(17,17,17,0.08)",
+    textPrimary: "#111111",
+    textSecondary: "#111111",
+    accent: "#00C853",
+    accentSoft: "rgba(0,200,83,0.13)",
+    headerFade: "rgba(247,247,247,0.84)",
+    rowOverlay: "rgba(0,0,0,0.025)",
+  },
+} as const;
 
-  const handleDelete = async () => {
-    setIsDeleting(true);
-    setError("");
-    try {
-      await deleteAccount();
-      router.replace("/select-role");
-    } catch (e: any) {
-      setError(e?.message ?? "حدث خطأ");
-    } finally {
-      setIsDeleting(false);
-    }
-  };
+const PLAYER_TYPE_LABELS: Record<string, string> = {
+  gk: "profile.playerTypes.gk",
+  def: "profile.playerTypes.def",
+  mid: "profile.playerTypes.mid",
+  atk: "profile.playerTypes.atk",
+};
 
-  return (
-    <Modal visible={visible} transparent animationType="fade">
-      <View style={modalStyles.fadeOverlay}>
-        <View style={[modalStyles.card, { backgroundColor: colors.card }]}>
-          <View style={modalStyles.dangerIcon}>
-            <Ionicons name="warning" size={36} color={Colors.destructive} />
-          </View>
-          <Text style={[modalStyles.cardTitle, { color: colors.text }]}>
-            {t("deleteConfirmTitle")}
-          </Text>
-          <Text style={[modalStyles.cardMsg, { color: colors.textSecondary }]}>
-            {t("deleteConfirmMsg")}
-          </Text>
-          {!!error && (
-            <Text style={[modalStyles.errorText, { color: Colors.destructive }]}>{error}</Text>
-          )}
-          <View style={modalStyles.btnRow}>
-            <Pressable
-              style={[modalStyles.cancelBtn, { borderColor: colors.border, backgroundColor: colors.surface }]}
-              onPress={handleClose}
-            >
-              <Text style={[modalStyles.cancelBtnText, { color: colors.text }]}>
-                {t("cancel")}
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[modalStyles.deleteBtn, isDeleting && { opacity: 0.5 }]}
-              onPress={handleDelete}
-              disabled={isDeleting}
-            >
-              <Text style={modalStyles.deleteBtnText}>
-                {isDeleting ? t("deleting") : t("delete")}
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function AboutModal({
-  visible,
-  onClose,
-}: {
-  visible: boolean;
-  onClose: () => void;
-}) {
-  const { colors } = useTheme();
-  const { t } = useLang();
-  return (
-    <Modal visible={visible} transparent animationType="slide">
-      <Pressable style={modalStyles.overlay} onPress={onClose}>
-        <Pressable
-          style={[modalStyles.sheet, { backgroundColor: colors.card }]}
-          onPress={() => {}}
-        >
-          <View style={[modalStyles.handle, { backgroundColor: colors.border }]} />
-          <View style={styles.aboutLogoRow}>
-            <View style={styles.aboutLogoCircle}>
-              <Ionicons name="football" size={28} color={Colors.primary} />
-            </View>
-            <Text style={[styles.aboutLogoTitle, { color: colors.text }]}>Shoot'ha</Text>
-          </View>
-          <Text style={[styles.aboutBody, { color: colors.textSecondary }]}>
-            {t("aboutAppText")}
-          </Text>
-          <Text style={[styles.aboutVersion, { color: colors.textTertiary }]}>v1.0.0</Text>
-          <Pressable
-            style={[styles.aboutCloseBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
-            onPress={onClose}
-          >
-            <Text style={[styles.aboutCloseBtnText, { color: colors.text }]}>{t("cancel")}</Text>
-          </Pressable>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
+function playerTypeLabel(
+  p: string | null | undefined,
+  tr: (key: string) => string,
+): string {
+  if (!p) return tr("profile.viewProfile");
+  const key = PLAYER_TYPE_LABELS[p];
+  return key ? tr(key) : p;
 }
 
 function SettingRow({
-  icon,
-  label,
-  value,
-  onPress,
-  danger,
-  rightElement,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  value?: string;
-  onPress?: () => void;
-  danger?: boolean;
-  rightElement?: React.ReactNode;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.settingRow,
-        { borderBottomColor: colors.border },
-        pressed && onPress ? { opacity: 0.7, backgroundColor: "rgba(128,128,128,0.05)" } : {},
-      ]}
-      onPress={onPress}
-    >
-      <View
-        style={[
-          styles.settingIcon,
-          {
-            backgroundColor: danger
-              ? "rgba(255,59,48,0.12)"
-              : colors.surface,
-          },
-        ]}
-      >
-        <Ionicons
-          name={icon}
-          size={18}
-          color={danger ? Colors.destructive : colors.textSecondary}
-        />
-      </View>
-      <Text
-        style={[
-          styles.settingLabel,
-          { color: danger ? Colors.destructive : colors.text },
-        ]}
-      >
-        {label}
-      </Text>
-      <View style={styles.settingRight}>
-        {value && (
-          <Text style={[styles.settingValue, { color: colors.textSecondary }]}>
-            {value}
-          </Text>
-        )}
-        {rightElement}
-        {onPress && !rightElement && (
-          <Ionicons name="chevron-back" size={16} color={colors.textTertiary} />
-        )}
-      </View>
-    </Pressable>
-  );
+icon,
+label,
+onPress,
+rightElement,
+palette,
+}:{
+icon:keyof typeof Ionicons.glyphMap
+label:string
+onPress?:()=>void
+rightElement?:React.ReactNode
+palette: (typeof PROFILE_TOKENS)["dark"] | (typeof PROFILE_TOKENS)["light"]
+}){
+const t = palette;
+
+return(
+
+<Pressable
+style={({pressed})=>[
+styles.row,
+{borderBottomColor:t.border, backgroundColor: pressed ? t.rowOverlay : "transparent"},
+pressed && styles.rowPressed
+]}
+onPress={onPress}
+>
+
+<View style={[styles.icon,{backgroundColor:t.accentSoft, borderColor: t.border}]}>
+<Ionicons name={icon} size={18} color={t.accent}/>
+</View>
+
+<Text style={[styles.label,{color:t.textPrimary}]}>
+{label}
+</Text>
+
+<View style={styles.right}>
+{rightElement}
+{onPress && !rightElement &&
+<Ionicons name="chevron-back" size={16} color={t.textSecondary}/>
+}
+</View>
+
+</Pressable>
+
+)
+
 }
 
-function StatCard({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string | number;
-  icon: keyof typeof Ionicons.glyphMap;
-}) {
-  const { colors } = useTheme();
-  return (
-    <View
-      style={[
-        styles.statCard,
-        { backgroundColor: colors.card, borderColor: colors.border },
-      ]}
-    >
-      <Ionicons name={icon} size={20} color={Colors.primary} />
-      <Text style={[styles.statValue, { color: colors.text }]}>{value}</Text>
-      <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{label}</Text>
-    </View>
-  );
+export default function ProfileScreen(){
+
+const insets=useSafeAreaInsets()
+const {isDark,toggleTheme}=useTheme()
+const { language, setLanguageForUser, t: tl } = useLang()
+const t = isDark ? PROFILE_TOKENS.dark : PROFILE_TOKENS.light
+const { user, logout, token, isGuest, refreshPlayerFromFirestore } = useAuth()
+const { pushIfLoggedIn, runIfLoggedIn } = useGuestPrompt()
+const segments = useSegments()
+const [walletLine, setWalletLine] = useState("…")
+const [profileRow, setProfileRow] = useState<{
+  full_name: string | null;
+  avatar_url: string | null;
+  player_type: string | null;
+} | null>(null)
+const [supportChatUnread, setSupportChatUnread] = useState(false)
+const [showLanguageModal, setShowLanguageModal] = useState(false)
+const [showInviteModal, setShowInviteModal] = useState(false)
+
+useEffect(() => {
+  let cancelled = false
+  if (!user?.id || isGuest || user.id === "guest") {
+    setProfileRow(null)
+    return
+  }
+  ;(async () => {
+    if (!cancelled) {
+      setProfileRow({
+        full_name: user?.name ?? null,
+        avatar_url: user?.profileImage ?? null,
+        player_type: user?.position ?? null,
+      })
+    }
+  })()
+  return () => {
+    cancelled = true
+  }
+}, [user?.id, user?.name, user?.profileImage, user?.position, isGuest])
+
+useEffect(() => {
+  if (!user?.id || isGuest || user.id === "guest") {
+    setSupportChatUnread(false)
+    return
+  }
+  let unsub: (() => void) | undefined
+  try {
+    unsub = subscribeUserSupportChatByUserId(user.id, (chat) => {
+      setSupportChatUnread(computeUnreadSupportHint(chat))
+    })
+  } catch {
+    setSupportChatUnread(false)
+  }
+  return () => {
+    unsub?.()
+  }
+}, [user?.id, isGuest])
+
+useEffect(() => {
+  if (isGuest || !user?.phone?.trim() || user?.inviteCode?.trim()) return
+  void refreshPlayerFromFirestore()
+}, [isGuest, user?.phone, user?.inviteCode, refreshPlayerFromFirestore])
+
+useEffect(() => {
+  let cancelled = false
+  const allowWallet =
+    (!!user && !isGuest) || (GUEST_FULL_ACCESS && isGuest)
+  if (!allowWallet) {
+    setWalletLine("—")
+    return
+  }
+  const walletToken = isGuest ? null : token
+  setWalletLine("…")
+  fetchWallet(walletToken, 1, {
+    userId: !isGuest && user?.id && user.id !== "guest" ? user.id : undefined,
+  })
+    .then((d) => {
+      if (!cancelled) {
+        setWalletLine(`IQD ${d.balance.toLocaleString("en-US")}`)
+      }
+    })
+    .catch(() => {
+      if (!cancelled) setWalletLine("—")
+    })
+  return () => {
+    cancelled = true
+  }
+}, [user, token, isGuest, segments.join("/")])
+
+const topPadding=Platform.OS==="web"?67:insets.top
+const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom
+
+const openInviteModal = () => {
+  runIfLoggedIn(() => {
+    setShowInviteModal(true)
+    if (!user?.inviteCode?.trim()) {
+      void refreshPlayerFromFirestore()
+    }
+  })
 }
 
-export default function ProfileScreen() {
-  const insets = useSafeAreaInsets();
-  const { bookings } = useBookings();
-  const { user, isGuest, logout } = useAuth();
-  const { colors, isDark, toggleTheme } = useTheme();
-  const { t } = useLang();
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [showGuestModal, setShowGuestModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [showAbout, setShowAbout] = useState(false);
+const inviteCodeDisplay = (user?.inviteCode ?? "").trim()
 
-  const topPadding = Platform.OS === "web" ? 67 : insets.top;
-  const bottomPadding = Platform.OS === "web" ? 34 : 0;
+const buildInviteShareMessage = () =>
+  tl("profile.inviteShareFullMessage", {
+    code: inviteCodeDisplay || "—",
+    link: APP_DOWNLOAD_PAGE_URL,
+  })
 
-  const completedCount = bookings.filter((b) => b.status === "completed").length;
-  const upcomingCount = bookings.filter((b) => b.status === "upcoming").length;
+const copyInvite = async () => {
+  if (!inviteCodeDisplay) {
+    Alert.alert(tl("common.warningTitle"), tl("profile.inviteCodeLoading"))
+    return
+  }
+  try {
+    const payload = `${tl("profile.inviteRewardHeadline")}\n\n${tl("profile.inviteCodeLabel")}: ${inviteCodeDisplay}\n${APP_DOWNLOAD_PAGE_URL}`
+    await Clipboard.setStringAsync(payload)
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    Alert.alert(tl("profile.inviteCopiedTitle"), tl("profile.inviteCopiedBody"))
+  } catch {
+    Alert.alert(tl("common.errorTitle"), tl("profile.inviteCopyFailed"))
+  }
+}
 
-  const handleLogout = () => {
-    Alert.alert(t("logoutConfirmTitle"), t("logoutConfirmMsg"), [
-      { text: t("cancel"), style: "cancel" },
-      {
-        text: t("logout"),
-        style: "destructive",
-        onPress: async () => {
-          await logout();
-          router.replace("/select-role");
-        },
-      },
-    ]);
-  };
+const shareInvite = () => {
+  if (!inviteCodeDisplay) {
+    Alert.alert(tl("common.warningTitle"), tl("profile.inviteCodeLoading"))
+    return
+  }
+  void Share.share({
+    title: tl("profile.inviteShareTitle"),
+    message: buildInviteShareMessage(),
+  }).catch(() => {})
+}
 
-  const displayName = isGuest ? t("guestMode") : user?.name ?? "مستخدم";
-  const displayPhone = isGuest ? "—" : user?.phone ?? "—";
-  const roleLabel = isGuest
-    ? t("guestMode")
-    : user?.role === "owner"
-    ? t("owner")
-    : user?.role === "supervisor"
-    ? t("supervisor")
-    : t("player");
-  const roleIcon: keyof typeof Ionicons.glyphMap = isGuest
-    ? "eye-outline"
-    : user?.role === "owner"
-    ? "business"
-    : user?.role === "supervisor"
-    ? "shield-checkmark"
-    : "football";
+const logoutConfirm=()=>{
 
-  return (
-    <View style={[styles.container, { backgroundColor: colors.background, paddingTop: topPadding }]}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: bottomPadding + 110 }]}
-        showsVerticalScrollIndicator={false}
+Alert.alert(
+tl("profile.logoutTitle"),
+tl("profile.logoutConfirm"),
+[
+{ text:tl("common.no"),style:"cancel"},
+{
+text:tl("common.yes"),
+style:"destructive",
+onPress:async()=>{
+Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+await logout()
+router.replace("/auth/player/login")
+}
+}
+]
+)
+
+}
+
+return (
+<AppBackground>
+<View style={[styles.container,{backgroundColor:"transparent",paddingTop:topPadding}]}>
+
+<ScrollView
+showsVerticalScrollIndicator={false}
+contentContainerStyle={{ paddingBottom: bottomPadding + 120 }}
+keyboardShouldPersistTaps="handled"
+>
+
+{/* HEADER */}
+
+<View style={styles.header}>
+
+<View style={styles.headerTextWrap}>
+  <Text style={[styles.title,{color:t.textPrimary}]}>
+  {tl("profile.title")}
+  </Text>
+  <Text style={[styles.headerSubTitle, { color: t.textSecondary }]}>
+    {tl("profile.subtitle")}
+  </Text>
+</View>
+
+<NotificationsButton showDot={false} />
+
+</View>
+
+{/* ACCOUNT */}
+
+{/* PROFILE CARD */}
+
+<Pressable
+style={[
+styles.profileCard,
+{
+  backgroundColor: t.cardElevated,
+  borderColor: t.border,
+},
+isDark ? styles.darkGlow : styles.lightShadow
+]}
+onPress={()=>pushIfLoggedIn("/profile/account")}
+>
+
+<View style={styles.profileLeft}>
+
+{profileRow?.avatar_url && /^https?:\/\//i.test(profileRow.avatar_url) ? (
+<Image
+source={{ uri: profileRow.avatar_url }}
+style={[styles.avatar, { overflow: "hidden", borderColor: t.accentSoft }]}
+resizeMode="cover"
+/>
+) : (
+<View style={[styles.avatar,{backgroundColor:t.accentSoft, borderColor: t.border}]}>
+<Ionicons name="person" size={28} color={t.accent}/>
+</View>
+)}
+
+<View>
+
+<Text style={[styles.profileName,{color:t.textPrimary}]}>
+{profileRow?.full_name?.trim()
+  ? profileRow.full_name
+  : user?.name?.trim()
+    ? user.name
+    : tl("profile.guestName")}
+</Text>
+
+<Text style={[styles.profileSub,{color:t.textSecondary}]}>
+{playerTypeLabel(profileRow?.player_type, tl)}
+</Text>
+
+</View>
+
+</View>
+
+<Ionicons name="chevron-back" size={18} color={t.textSecondary}/>
+
+</Pressable>
+{/* WALLET */}
+
+<Pressable
+style={[
+styles.walletCard,
+{
+  backgroundColor: t.cardElevated,
+  borderColor: t.border,
+},
+isDark ? styles.walletGlowDark : styles.walletGlowLight
+]}
+onPress={()=>pushIfLoggedIn("/wallet")}
+>
+
+<View style={styles.walletLeft}>
+
+<View style={[styles.walletIcon,{backgroundColor:t.accentSoft, borderColor: t.border}]}>
+<Ionicons name="wallet-outline" size={22} color={t.accent}/>
+</View>
+
+<View>
+
+<Text style={[styles.walletTitle,{color:t.textPrimary}]}>
+{tl("profile.wallet")}
+</Text>
+
+<Text style={[styles.walletSub,{color:t.textSecondary}]}>
+{tl("profile.availableBalance")}
+</Text>
+
+</View>
+
+</View>
+
+<Text style={[styles.walletBalance,{color:t.accent}]}>
+{walletLine}
+</Text>
+
+</Pressable>
+{/* SETTINGS */}
+
+<View style={[styles.group,{backgroundColor:t.card,borderColor:t.border}, isDark ? styles.darkGlow : styles.lightShadow]}>
+
+<SettingRow
+icon="moon-outline"
+label={tl("profile.darkMode")}
+palette={t}
+rightElement={
+<Switch
+value={isDark}
+onValueChange={()=>{
+Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+toggleTheme()
+}}
+trackColor={{true:t.accent,false:"rgba(128,128,128,0.45)"}}
+thumbColor="#fff"
+ios_backgroundColor="rgba(128,128,128,0.35)"
+/>
+}
+/>
+<SettingRow
+icon="language-outline"
+label={tl("language.title")}
+palette={t}
+onPress={() => setShowLanguageModal(true)}
+rightElement={
+  <Text style={[styles.langValue, { color: t.textSecondary }]}>
+    {language === "ar" ? `🇮🇶 ${tl("language.ar")}` : language === "ku" ? `🇮🇶 ${tl("language.ku")}` : `🇺🇸 ${tl("language.en")}`}
+  </Text>
+}
+/>
+
+</View>
+
+{/* TERMS */}
+
+<View style={[styles.group,{backgroundColor:t.card,borderColor:t.border}, isDark ? styles.darkGlow : styles.lightShadow]}>
+
+<SettingRow
+icon="document-text-outline"
+label={tl("profile.terms")}
+palette={t}
+onPress={()=>router.push("/terms")}
+/>
+
+</View>
+
+{/* SUPPORT */}
+
+<View style={[styles.group,{backgroundColor:t.card,borderColor:t.border}, isDark ? styles.darkGlow : styles.lightShadow]}>
+
+<SettingRow
+icon="help-circle-outline"
+label={tl("profile.support")}
+palette={t}
+onPress={()=>router.push("/profile/support")}
+/>
+
+<SettingRow
+icon="chatbubble-ellipses-outline"
+label={tl("profile.liveSupportChat")}
+palette={t}
+onPress={()=>router.push("/profile/support-chat")}
+rightElement={
+<View style={styles.supportRowRight}>
+{supportChatUnread ? (
+<View style={[styles.supportBadge, { backgroundColor: t.accent }]}>
+<Text style={styles.supportBadgeText}>{tl("common.new")}</Text>
+</View>
+) : null}
+<Ionicons name="chevron-back" size={16} color={t.textSecondary}/>
+</View>
+}
+/>
+
+</View>
+
+{/* RATE APP */}
+
+<View style={[styles.group,{backgroundColor:t.card,borderColor:t.border}, isDark ? styles.darkGlow : styles.lightShadow]}>
+
+<SettingRow
+icon="star-outline"
+label={tl("profile.rateApp")}
+palette={t}
+/>
+
+</View>
+
+{/* UPDATE */}
+
+<View style={[styles.group,{backgroundColor:t.card,borderColor:t.border}, isDark ? styles.darkGlow : styles.lightShadow]}>
+
+<SettingRow
+icon="refresh-outline"
+label={tl("profile.updateApp")}
+palette={t}
+/>
+
+<SettingRow
+icon="grid-outline"
+label={tl("profile.shoothaPlatforms")}
+palette={t}
+onPress={() => router.push("/profile/shootah-platforms")}
+/>
+
+</View>
+
+{/* INVITE */}
+
+<View style={[styles.group,{backgroundColor:t.card,borderColor:t.border}, isDark ? styles.darkGlow : styles.lightShadow]}>
+
+<SettingRow
+icon="share-social-outline"
+label={tl("profile.inviteFriend")}
+palette={t}
+onPress={openInviteModal}
+/>
+
+</View>
+
+{/* LOGOUT */}
+
+<View style={[styles.group,{backgroundColor:t.card,borderColor:t.border}, isDark ? styles.darkGlow : styles.lightShadow]}>
+
+<SettingRow
+icon="log-out-outline"
+label={tl("profile.logout")}
+palette={t}
+onPress={logoutConfirm}
+/>
+
+</View>
+
+ </ScrollView>
+
+  <Modal visible={showInviteModal} transparent animationType="fade" onRequestClose={() => setShowInviteModal(false)}>
+    <Pressable style={styles.modalOverlay} onPress={() => setShowInviteModal(false)}>
+      <Pressable
+        style={[styles.inviteModalBox, { backgroundColor: t.card, borderColor: t.border }]}
+        onPress={(e) => e.stopPropagation()}
       >
-        <View style={styles.header}>
-          <Text style={[styles.title, { color: colors.text }]}>{t("myAccount")}</Text>
-        </View>
-
-        {isGuest ? (
+        <Text style={[styles.inviteModalTitle, { color: t.textPrimary }]}>{tl("profile.inviteFriend")}</Text>
+        <Text style={[styles.inviteRewardText, { color: t.textSecondary }]}>{tl("profile.inviteRewardHeadline")}</Text>
+        <Text style={[styles.inviteCodeLabel, { color: t.textSecondary }]}>{tl("profile.inviteCodeLabel")}</Text>
+        {inviteCodeDisplay ? (
+          <View style={[styles.inviteCodePill, { borderColor: t.accent, backgroundColor: t.accentSoft }]}>
+            <Text style={[styles.inviteCodeText, { color: t.textPrimary }]} selectable>
+              {inviteCodeDisplay}
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.inviteLoadingRow}>
+            <ActivityIndicator color={t.accent} />
+            <Text style={[styles.inviteLoadingText, { color: t.textSecondary }]}>{tl("profile.inviteCodeLoading")}</Text>
+          </View>
+        )}
+        <Text style={[styles.inviteLinkHint, { color: t.textSecondary }]} numberOfLines={2}>
+          {APP_DOWNLOAD_PAGE_URL}
+        </Text>
+        <View style={styles.inviteActions}>
           <Pressable
-            style={[styles.guestBanner, { borderColor: "rgba(255,149,0,0.25)", backgroundColor: "rgba(255,149,0,0.08)" }]}
-            onPress={() => setShowGuestModal(true)}
+            style={[styles.inviteActionBtn, { backgroundColor: t.rowOverlay, borderColor: t.border }]}
+            onPress={copyInvite}
           >
-            <Ionicons name="eye-outline" size={22} color={Colors.warning} />
-            <View style={styles.guestBannerText}>
-              <Text style={[styles.guestBannerTitle, { color: Colors.warning }]}>{t("guestMode")}</Text>
-              <Text style={[styles.guestBannerSub, { color: colors.textSecondary }]}>{t("guestBannerSub")}</Text>
-            </View>
-            <Ionicons name="chevron-back" size={18} color={Colors.warning} />
+            <Ionicons name="copy-outline" size={18} color={t.accent} />
+            <Text style={[styles.inviteActionBtnText, { color: t.textPrimary }]}>{tl("profile.inviteCopy")}</Text>
           </Pressable>
-        ) : null}
-
-        <Pressable
-          style={[styles.avatarSection, { backgroundColor: colors.card, borderColor: colors.border }]}
-          onPress={!isGuest ? () => router.push("/profile/edit") : undefined}
-        >
-          <View
-            style={[
-              styles.avatarCircle,
-              isGuest && { borderColor: Colors.warning },
-            ]}
-          >
-            {user?.profileImage ? (
-              <Image
-                source={{ uri: user.profileImage }}
-                style={styles.avatarImage}
-              />
-            ) : (
-              <Text
-                style={[
-                  styles.avatarInitial,
-                  isGuest && { color: Colors.warning },
-                ]}
-              >
-                {displayName.charAt(0)}
-              </Text>
-            )}
-          </View>
-          <View style={styles.avatarInfo}>
-            <Text style={[styles.userName, { color: colors.text }]}>{displayName}</Text>
-            <Text style={[styles.userPhone, { color: colors.textSecondary }]}>{displayPhone}</Text>
-            <View style={styles.captainBadge}>
-              <Ionicons
-                name={roleIcon}
-                size={12}
-                color={isGuest ? Colors.warning : Colors.primary}
-              />
-              <Text
-                style={[
-                  styles.captainText,
-                  isGuest && { color: Colors.warning },
-                ]}
-              >
-                {roleLabel}
-              </Text>
-            </View>
-          </View>
-          {!isGuest && (
-            <View style={[styles.editBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Ionicons name="pencil" size={16} color={colors.textSecondary} />
-            </View>
-          )}
+          <Pressable style={[styles.inviteActionBtn, styles.inviteActionPrimary, { backgroundColor: t.accent }]} onPress={shareInvite}>
+            <Ionicons name="share-social-outline" size={18} color="#000" />
+            <Text style={[styles.inviteActionBtnText, { color: "#000" }]}>{tl("profile.inviteShare")}</Text>
+          </Pressable>
+        </View>
+        <Pressable style={[styles.modalDone, { backgroundColor: t.rowOverlay, marginTop: 8 }]} onPress={() => setShowInviteModal(false)}>
+          <Text style={[styles.modalDoneText, { color: t.textPrimary }]}>{tl("common.done")}</Text>
         </Pressable>
+      </Pressable>
+    </Pressable>
+  </Modal>
 
-        {!isGuest && (
-          <View style={styles.statsRow}>
-            <StatCard label={t("games")} value={completedCount} icon="football" />
-            <StatCard label={t("upcoming")} value={upcomingCount} icon="calendar" />
-            <StatCard label={t("noShow")} value="0" icon="close-circle" />
-          </View>
-        )}
-
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>{t("settings")}</Text>
-        <View style={[styles.settingsGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <SettingRow
-            icon="notifications-outline"
-            label={t("notifications")}
-            rightElement={
-              <Switch
-                value={notificationsEnabled}
-                onValueChange={setNotificationsEnabled}
-                trackColor={{ true: Colors.primary, false: colors.disabled }}
-                thumbColor="#fff"
-                ios_backgroundColor={colors.disabled}
-              />
-            }
-          />
-          <SettingRow
-            icon="moon-outline"
-            label={t("darkMode")}
-            rightElement={
-              <Switch
-                value={isDark}
-                onValueChange={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  toggleTheme();
-                }}
-                trackColor={{ true: Colors.primary, false: colors.disabled }}
-                thumbColor="#fff"
-                ios_backgroundColor={colors.disabled}
-              />
-            }
-          />
-          <SettingRow icon="location-outline" label={t("city")} value={t("mosul")} />
-        </View>
-
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>{t("payment")}</Text>
-        <View style={[styles.settingsGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.comingSoonRow}>
-            <View style={[styles.settingIcon, { backgroundColor: colors.surface }]}>
-              <Ionicons name="card-outline" size={18} color={colors.textSecondary} />
-            </View>
-            <Text style={[styles.settingLabel, { color: colors.text }]}>{t("paymentMethods")}</Text>
-            <View style={styles.comingSoonBadge}>
-              <Text style={styles.comingSoonText}>قريباً</Text>
-            </View>
-          </View>
-        </View>
-
-        {!isGuest && (
-          <>
-            <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>{t("helpSupport")}</Text>
-            <View style={[styles.settingsGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <SettingRow
-                icon="logo-whatsapp"
-                label={t("whatsapp")}
-                onPress={() => router.push("/profile/support")}
-              />
-              <SettingRow
-                icon="information-circle-outline"
-                label={t("aboutApp")}
-                onPress={() => setShowAbout(true)}
-              />
-            </View>
-
-            <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>{t("dangerZone")}</Text>
-            <View style={[styles.settingsGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <SettingRow
-                icon="trash-outline"
-                label={t("deleteAccount")}
-                onPress={() => setShowDeleteModal(true)}
-                danger
-              />
-            </View>
-          </>
-        )}
-
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>{t("session")}</Text>
-        <View style={[styles.settingsGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <SettingRow
-            icon="log-out-outline"
-            label={isGuest ? t("createAccount") : t("logout")}
-            onPress={isGuest ? () => setShowGuestModal(true) : handleLogout}
-            danger={!isGuest}
-          />
-        </View>
-
-        <View style={styles.footer}>
-          <Text style={[styles.footerText, { color: colors.textTertiary }]}>{t("footer")}</Text>
-        </View>
-      </ScrollView>
-
-      <GuestModal visible={showGuestModal} onClose={() => setShowGuestModal(false)} />
-      <DeleteAccountModal visible={showDeleteModal} onClose={() => setShowDeleteModal(false)} />
-      <AboutModal visible={showAbout} onClose={() => setShowAbout(false)} />
+ <Modal visible={showLanguageModal} transparent animationType="fade">
+  <View style={styles.modalOverlay}>
+    <View style={[styles.modalBox, { backgroundColor: t.card, borderColor: t.border }]}>
+      <Text style={[styles.modalTitle, { color: t.textPrimary }]}>{tl("language.select")}</Text>
+      {(
+        [
+          { id: "ar", label: `🇮🇶 ${tl("language.ar")}` },
+          { id: "ku", label: `🇮🇶 ${tl("language.ku")}` },
+          { id: "en", label: `🇺🇸 ${tl("language.en")}` },
+        ] as { id: Language; label: string }[]
+      ).map((opt) => (
+        <Pressable
+          key={opt.id}
+          style={[
+            styles.modalOption,
+            { borderColor: t.border, backgroundColor: language === opt.id ? t.accentSoft : t.card },
+          ]}
+          onPress={async () => {
+            await setLanguageForUser(opt.id, user?.id);
+            setShowLanguageModal(false);
+          }}
+        >
+          <Text style={{ color: language === opt.id ? t.accent : t.textPrimary, fontFamily: "Cairo_600SemiBold" }}>
+            {opt.label}
+          </Text>
+        </Pressable>
+      ))}
+      <Pressable style={[styles.modalDone, { backgroundColor: t.accent }]} onPress={() => setShowLanguageModal(false)}>
+        <Text style={styles.modalDoneText}>{tl("common.done")}</Text>
+      </Pressable>
     </View>
-  );
+  </View>
+ </Modal>
+
+</View>
+</AppBackground>
+);
+
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  scroll: { flex: 1 },
-  content: { paddingHorizontal: 20, gap: 0 },
-  header: { paddingTop: 8, paddingBottom: 16 },
-  title: { fontSize: 26, fontFamily: "Cairo_700Bold" },
-  guestBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    marginBottom: 12,
-    gap: 12,
-  },
-  guestBannerText: { flex: 1, gap: 2 },
-  guestBannerTitle: { fontSize: 14, fontFamily: "Cairo_700Bold" },
-  guestBannerSub: { fontSize: 12, fontFamily: "Cairo_400Regular" },
-  avatarSection: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 20,
-    padding: 16,
-    borderWidth: 1,
-    marginBottom: 16,
-    gap: 14,
-  },
-  avatarCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: "rgba(46,204,113,0.15)",
-    borderWidth: 2,
-    borderColor: Colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  avatarImage: { width: 58, height: 58, borderRadius: 29 },
-  avatarInitial: { color: Colors.primary, fontSize: 24, fontFamily: "Cairo_700Bold" },
-  avatarInfo: { flex: 1, gap: 2 },
-  userName: { fontSize: 17, fontFamily: "Cairo_700Bold" },
-  userPhone: { fontSize: 13, fontFamily: "Cairo_400Regular" },
-  captainBadge: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
-  captainText: { color: Colors.primary, fontSize: 12, fontFamily: "Cairo_600SemiBold" },
-  editBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-  },
-  statsRow: { flexDirection: "row", gap: 10, marginBottom: 24 },
-  statCard: {
-    flex: 1,
-    borderRadius: 14,
-    padding: 12,
-    alignItems: "center",
-    gap: 4,
-    borderWidth: 1,
-  },
-  statValue: { fontSize: 18, fontFamily: "Cairo_700Bold" },
-  statLabel: { fontSize: 11, fontFamily: "Cairo_400Regular", textAlign: "center" },
-  sectionTitle: {
-    fontSize: 12,
-    fontFamily: "Cairo_600SemiBold",
-    marginBottom: 8,
-    marginTop: 8,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-  },
-  settingsGroup: {
-    borderRadius: 16,
-    overflow: "hidden",
-    borderWidth: 1,
-    marginBottom: 16,
-  },
-  settingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 13,
-    paddingHorizontal: 14,
-    borderBottomWidth: 1,
-    gap: 12,
-  },
-  settingIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  settingLabel: { flex: 1, fontSize: 14, fontFamily: "Cairo_400Regular" },
-  settingRight: { flexDirection: "row", alignItems: "center", gap: 6 },
-  settingValue: { fontSize: 13, fontFamily: "Cairo_400Regular" },
-  comingSoonRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 13,
-    paddingHorizontal: 14,
-    gap: 12,
-  },
-  comingSoonBadge: {
-    backgroundColor: "rgba(46,204,113,0.12)",
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(46,204,113,0.25)",
-  },
-  comingSoonText: { color: Colors.primary, fontSize: 12, fontFamily: "Cairo_600SemiBold" },
-  footer: { alignItems: "center", paddingVertical: 16 },
-  footerText: { fontSize: 12, fontFamily: "Cairo_400Regular" },
-  aboutLogoRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16, justifyContent: "center" },
-  aboutLogoCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "rgba(46,204,113,0.12)",
-    borderWidth: 2,
-    borderColor: "rgba(46,204,113,0.3)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  aboutLogoTitle: { fontSize: 22, fontFamily: "Cairo_700Bold" },
-  aboutBody: {
-    fontSize: 14,
-    fontFamily: "Cairo_400Regular",
-    lineHeight: 24,
-    textAlign: "right",
-    marginBottom: 16,
-  },
-  aboutVersion: { fontSize: 12, fontFamily: "Cairo_400Regular", marginBottom: 20 },
-  aboutCloseBtn: {
-    width: "100%",
-    height: 48,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-  },
-  aboutCloseBtnText: { fontSize: 15, fontFamily: "Cairo_600SemiBold" },
-});
+const styles=StyleSheet.create({
 
-const modalStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "flex-end",
-  },
-  fadeOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 24,
-  },
-  sheet: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-    paddingTop: 12,
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: "center",
-    marginBottom: 16,
-  },
-  sheetTitle: {
-    fontSize: 17,
-    fontFamily: "Cairo_700Bold",
-    textAlign: "center",
-    marginBottom: 16,
-  },
-  card: {
-    width: "100%",
-    borderRadius: 20,
-    padding: 24,
-    alignItems: "center",
-    gap: 12,
-  },
-  dangerIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "rgba(255,59,48,0.1)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
-  },
-  cardTitle: { fontSize: 18, fontFamily: "Cairo_700Bold", textAlign: "center" },
-  cardMsg: { fontSize: 14, fontFamily: "Cairo_400Regular", textAlign: "center", lineHeight: 22 },
-  inputLabel: { fontSize: 13, fontFamily: "Cairo_400Regular", alignSelf: "flex-start" },
-  input: {
-    width: "100%",
-    height: 48,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    fontSize: 15,
-    fontFamily: "Cairo_400Regular",
-  },
-  errorText: { fontSize: 12, fontFamily: "Cairo_400Regular", alignSelf: "flex-start" },
-  btnRow: { flexDirection: "row", gap: 12, width: "100%", marginTop: 4 },
-  cancelBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelBtnText: { fontSize: 15, fontFamily: "Cairo_600SemiBold" },
-  deleteBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: Colors.destructive,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  deleteBtnText: { color: "#fff", fontSize: 15, fontFamily: "Cairo_600SemiBold" },
-});
+container:{
+flex:1
+},
+
+header:{
+flexDirection:"row",
+alignItems:"center",
+justifyContent:"space-between",
+paddingHorizontal:H_PADDING,
+paddingBottom:16
+},
+headerTextWrap: {
+  gap: 2,
+},
+
+title:{
+fontSize:28,
+fontFamily:"Cairo_700Bold",
+letterSpacing:0.2,
+lineHeight:38,
+},
+headerSubTitle: {
+  fontSize: 13,
+  fontFamily: "Cairo_400Regular",
+  lineHeight: 18,
+},
+
+
+group:{
+borderRadius:CARD_RADIUS,
+borderWidth:1,
+marginHorizontal:H_PADDING,
+marginBottom:14,
+overflow:"hidden"
+},
+
+row:{
+flexDirection:"row",
+alignItems:"center",
+paddingHorizontal:16,
+paddingVertical:15,
+borderBottomWidth:1,
+gap:12
+},
+rowPressed: {
+  transform: [{ scale: 0.97 }],
+},
+
+icon:{
+width:34,
+height:34,
+borderRadius:10,
+alignItems:"center",
+justifyContent:"center",
+borderWidth: 1,
+},
+
+label:{
+flex:1,
+fontSize:15,
+fontFamily:"Cairo_600SemiBold"
+},
+
+right:{
+flexDirection:"row",
+alignItems:"center",
+gap:6
+},
+profileCard:{
+flexDirection:"row",
+alignItems:"center",
+justifyContent:"space-between",
+borderWidth:1,
+borderRadius:CARD_RADIUS,
+marginHorizontal:H_PADDING,
+paddingVertical:18,
+paddingHorizontal:16,
+marginBottom:16
+},
+
+profileLeft:{
+flexDirection:"row",
+alignItems:"center",
+gap:14
+},
+
+avatar:{
+width:64,
+height:64,
+borderRadius:32,
+alignItems:"center",
+justifyContent:"center",
+borderWidth: 1,
+},
+
+profileName:{
+fontSize:17,
+fontFamily:"Cairo_700Bold",
+lineHeight: 24,
+},
+
+profileSub:{
+fontSize:13,
+fontFamily:"Cairo_400Regular",
+marginTop:2,
+lineHeight: 19,
+},
+walletCard:{
+flexDirection:"row",
+alignItems:"center",
+justifyContent:"space-between",
+borderWidth:1,
+borderRadius:CARD_RADIUS,
+marginHorizontal:H_PADDING,
+paddingVertical:18,
+paddingHorizontal:16,
+marginBottom:16
+},
+
+walletLeft:{
+flexDirection:"row",
+alignItems:"center",
+gap:14
+},
+
+walletIcon:{
+width:50,
+height:50,
+borderRadius:14,
+alignItems:"center",
+justifyContent:"center",
+borderWidth: 1,
+},
+
+walletTitle:{
+fontSize:16,
+fontFamily:"Cairo_700Bold",
+lineHeight: 23,
+},
+
+walletSub:{
+fontSize:12,
+fontFamily:"Cairo_400Regular",
+lineHeight: 18,
+},
+
+walletBalance:{
+fontSize:20,
+fontFamily:"Cairo_700Bold",
+letterSpacing:0.2,
+lineHeight: 28,
+},
+darkGlow: {
+  shadowColor: "#00E676",
+  shadowOpacity: 0.12,
+  shadowRadius: 12,
+  shadowOffset: { width: 0, height: 4 },
+  elevation: 0,
+},
+walletGlowDark: {
+  shadowColor: "#00E676",
+  shadowOpacity: 0.2,
+  shadowRadius: 16,
+  shadowOffset: { width: 0, height: 6 },
+  elevation: 0,
+},
+walletGlowLight: {
+  shadowColor: "#0A0A0A",
+  shadowOpacity: 0.08,
+  shadowRadius: 16,
+  shadowOffset: { width: 0, height: 8 },
+  elevation: 3,
+},
+lightShadow: {
+  shadowColor: "#0A0A0A",
+  shadowOpacity: 0.06,
+  shadowRadius: 12,
+  shadowOffset: { width: 0, height: 6 },
+  elevation: 2,
+},
+supportRowRight: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 8,
+},
+supportBadge: {
+  paddingHorizontal: 8,
+  paddingVertical: 3,
+  borderRadius: 8,
+},
+supportBadgeText: {
+  fontSize: 11,
+  fontFamily: "Cairo_700Bold",
+  color: "#0D0D0D",
+},
+langValue: {
+  fontSize: 13,
+  fontFamily: "Cairo_600SemiBold",
+},
+modalOverlay: {
+  flex: 1,
+  backgroundColor: "rgba(0,0,0,0.38)",
+  alignItems: "center",
+  justifyContent: "center",
+},
+modalBox: {
+  width: "84%",
+  borderRadius: 16,
+  borderWidth: 1,
+  padding: 14,
+},
+modalTitle: {
+  fontSize: 16,
+  fontFamily: "Cairo_700Bold",
+  textAlign: "center",
+  marginBottom: 10,
+},
+modalOption: {
+  borderWidth: 1,
+  borderRadius: 12,
+  height: 46,
+  alignItems: "center",
+  justifyContent: "center",
+  marginBottom: 8,
+},
+modalDone: {
+  marginTop: 4,
+  borderRadius: 12,
+  height: 44,
+  alignItems: "center",
+  justifyContent: "center",
+},
+modalDoneText: {
+  color: "#0D0D0D",
+  fontFamily: "Cairo_700Bold",
+},
+inviteModalBox: {
+  width: "88%",
+  maxWidth: 400,
+  borderRadius: 18,
+  borderWidth: 1,
+  padding: 18,
+},
+inviteModalTitle: {
+  fontSize: 17,
+  fontFamily: "Cairo_700Bold",
+  textAlign: "center",
+  marginBottom: 10,
+},
+inviteRewardText: {
+  fontSize: 14,
+  fontFamily: "Cairo_600SemiBold",
+  textAlign: "center",
+  lineHeight: 22,
+  marginBottom: 16,
+},
+inviteCodeLabel: {
+  fontSize: 12,
+  fontFamily: "Cairo_600SemiBold",
+  textAlign: "center",
+  marginBottom: 6,
+},
+inviteCodePill: {
+  borderWidth: 2,
+  borderRadius: 14,
+  paddingVertical: 14,
+  paddingHorizontal: 16,
+  alignSelf: "stretch",
+  alignItems: "center",
+},
+inviteCodeText: {
+  fontSize: 22,
+  fontFamily: "Cairo_700Bold",
+  letterSpacing: 3,
+},
+inviteLoadingRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 10,
+  paddingVertical: 16,
+},
+inviteLoadingText: {
+  fontSize: 13,
+  fontFamily: "Cairo_400Regular",
+},
+inviteLinkHint: {
+  fontSize: 11,
+  fontFamily: "Cairo_400Regular",
+  textAlign: "center",
+  marginTop: 10,
+  marginBottom: 4,
+},
+inviteActions: {
+  flexDirection: "row",
+  gap: 10,
+  marginTop: 14,
+},
+inviteActionBtn: {
+  flex: 1,
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 6,
+  borderRadius: 12,
+  borderWidth: 1,
+  paddingVertical: 12,
+},
+inviteActionPrimary: {
+  borderWidth: 0,
+},
+inviteActionBtnText: {
+  fontSize: 13,
+  fontFamily: "Cairo_700Bold",
+},
+})

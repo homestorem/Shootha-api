@@ -1,0 +1,264 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isControlPanel() {
+      return isSignedIn() && (
+        request.auth.token.role == "admin" ||
+        request.auth.token.role == "owner" ||
+        request.auth.token.role == "supervisor"
+      );
+    }
+
+    /**
+     * هوية اللاعب في التطبيق: Custom Token يمنح uid داخلياً (مثل sh_964…) + مطالبات e164 وplayerId.
+     * مستندات المحفظة والحجوزات تستخدم غالباً رقم +964 كمعرّف.
+     */
+    function identityMatches(id) {
+      return isSignedIn() && id is string && (
+        id == request.auth.uid ||
+        id == request.auth.token.e164 ||
+        id == request.auth.token.playerId
+      );
+    }
+
+    /** المستخدم المسجّل في Shootha: عنده هوية Firebase + ملف users يحتوي الاسم والتوكن */
+    function hasShoothaUserProfile() {
+      return isSignedIn()
+        && request.auth.token.e164 is string
+        && exists(/databases/$(database)/documents/users/$(request.auth.token.e164))
+        && get(/databases/$(database)/documents/users/$(request.auth.token.e164)).data.name is string
+        && get(/databases/$(database)/documents/users/$(request.auth.token.e164)).data.name.size() > 0
+        && (
+          (get(/databases/$(database)/documents/users/$(request.auth.token.e164)).data.expoPushToken is string
+            && get(/databases/$(database)/documents/users/$(request.auth.token.e164)).data.expoPushToken.size() > 0)
+          ||
+          (get(/databases/$(database)/documents/users/$(request.auth.token.e164)).data.token is string
+            && get(/databases/$(database)/documents/users/$(request.auth.token.e164)).data.token.size() > 0)
+          ||
+          (get(/databases/$(database)/documents/users/$(request.auth.token.e164)).data.expoPublicToken is string
+            && get(/databases/$(database)/documents/users/$(request.auth.token.e164)).data.expoPublicToken.size() > 0)
+        );
+    }
+
+    function isShoothaAccountReady() {
+      return hasShoothaUserProfile() || isControlPanel();
+    }
+
+    function walletDocUserAllowed(walletDocUserId) {
+      return isSignedIn() && walletDocUserId is string && walletDocUserId.size() > 0 && (
+        request.auth.uid == walletDocUserId ||
+        request.auth.token.e164 == walletDocUserId
+      );
+    }
+
+    /* ——— كتالوج عام (التطبيق يقرأها مباشرة من العميل) ——— */
+    match /fields/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /ads/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /stores/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /products/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /categories/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /storeAds/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    /** أفضل اللاعبين/الليدربورد — عرض عام للضيف والمسجّل */
+    match /leaderboard/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /topPlayers/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    /**
+     * المستخدمون — تدفق OTP يقرأ/يكتب من العميل قبل اكتمال Firebase Auth أحياناً؛
+     * يُفضّل تشديد القواعد لاحقاً مع App Check أو كتابة عبر الخادم فقط.
+     */
+    match /users/{userId} {
+      allow read: if identityMatches(userId) || isControlPanel();
+      allow create: if identityMatches(userId) || isControlPanel();
+      allow update: if identityMatches(userId) || isControlPanel();
+      allow delete: if false;
+    }
+
+    /** أكواد الخصم — القراءة للتحقق؛ تحديث usedCount فقط (انظر lib/firestore-promo.ts) */
+    match /promoCodes/{id} {
+      allow read: if true;
+      allow create, delete: if false;
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedCount'])
+        && request.resource.data.usedCount is int
+        && resource.data.usedCount is int
+        && request.resource.data.usedCount == resource.data.usedCount + 1;
+    }
+
+    /**
+     * المحفظة — الرصيد في wallets/{userId}؛ التحديث من الخادم (Admin) فقط في الإنتاج.
+     */
+    match /wallets/{userId} {
+      allow read: if walletDocUserAllowed(userId) && isShoothaAccountReady();
+
+      allow create: if walletDocUserAllowed(userId) && isShoothaAccountReady()
+        && request.resource.data.keys().hasOnly(['user_balance', 'updatedAt'])
+        && request.resource.data.user_balance is int
+        && request.resource.data.user_balance == 0;
+
+      allow update: if false;
+      allow delete: if false;
+
+      /** سجل قديم — قراءة فقط */
+      match /transactions/{txId} {
+        allow read: if walletDocUserAllowed(userId) && isShoothaAccountReady();
+        allow list: if walletDocUserAllowed(userId) && isShoothaAccountReady();
+        allow create, update, delete: if false;
+      }
+    }
+
+    /**
+     * سجل العمليات المرتبط بالمحفظة — إيداع (credit) أو خصم (debit).
+     * مفتاح المستند = idempotency؛ userId يربط السجل بمحفظة wallets/{userId}.
+     * لا كتابة من العميل — فقط Admin SDK.
+     */
+    match /walletTransactions/{transactionId} {
+      allow read: if isShoothaAccountReady() && (
+        request.auth.uid == resource.data.userId ||
+        request.auth.token.e164 == resource.data.userId
+      );
+      allow create, update, delete: if false;
+    }
+
+    /** حجوزات اللاعب */
+    match /bookings/{bookingId} {
+      allow read: if isShoothaAccountReady() && identityMatches(resource.data.playerUserId);
+      allow create: if isShoothaAccountReady() && identityMatches(request.resource.data.playerUserId);
+      allow update: if isShoothaAccountReady() && identityMatches(resource.data.playerUserId);
+      allow delete: if false;
+    }
+
+    /** إشعارات داخل التطبيق */
+    match /notifications/{docId} {
+      allow read: if isShoothaAccountReady() && identityMatches(resource.data.userId);
+      allow update: if isShoothaAccountReady() && identityMatches(resource.data.userId);
+      allow create, delete: if false;
+    }
+
+    /** طلبات المتجر */
+    match /orders/{docId} {
+      allow read: if isShoothaAccountReady() && identityMatches(resource.data.userId);
+      allow create: if isShoothaAccountReady() && identityMatches(request.resource.data.userId);
+      allow update, delete: if false;
+    }
+
+    match /payments/{docId} {
+      allow read: if isShoothaAccountReady() && identityMatches(resource.data.userId);
+      allow create: if isShoothaAccountReady() && identityMatches(request.resource.data.userId);
+      allow update, delete: if false;
+    }
+
+    /**
+     * محادثة الدعم — chats/{chatId} + messages فرعية.
+     * يجب أن يقرأ اللاعب *كل* رسائل محادثته (بما فيها ردود الأدمن من لوحة التحكم).
+     * لا تضع شرطاً على resource.data.senderId للقراءة وإلا تختفي ردود الدعم في التطبيق.
+     *
+     * التطبيق يستخدم Custom Token مع claim `e164` يطابق حقل userId في المحادثة (+964…)
+     * بينما request.auth.uid قد يكون معرفاً داخلياً (مثل sh_9647…).
+     */
+    function supportChatMatchesUserId(docUserId) {
+      return isShoothaAccountReady() && (docUserId is string && docUserId.size() > 0) && (
+        docUserId == request.auth.uid ||
+        docUserId == request.auth.token.e164 ||
+        docUserId == request.auth.token.playerId
+      );
+    }
+
+    function supportUserOwnsChat(chatId) {
+      return supportChatMatchesUserId(
+        get(/databases/$(database)/documents/chats/$(chatId)).data.userId
+      );
+    }
+
+    match /chats/{chatId} {
+      allow read: if supportChatMatchesUserId(resource.data.userId);
+
+      allow create: if isSignedIn()
+        && supportChatMatchesUserId(request.resource.data.userId);
+
+      allow update: if supportChatMatchesUserId(resource.data.userId);
+
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if supportUserOwnsChat(chatId);
+
+        allow create: if isSignedIn()
+          && isShoothaAccountReady()
+          && supportUserOwnsChat(chatId)
+          && request.resource.data.senderType == "user"
+          && (
+            request.resource.data.senderId == request.auth.uid ||
+            request.resource.data.senderId == request.auth.token.e164 ||
+            request.resource.data.senderId == request.auth.token.playerId
+          );
+
+        allow update, delete: if false;
+      }
+    }
+
+    /**
+     * محادثات الدعم الجديدة:
+     * دعم والمحادثات/{uid}/messages/{messageId}
+     */
+    match /{supportCollection}/{userId} {
+      allow read, update: if supportCollection == "دعم والمحادثات"
+        && isShoothaAccountReady()
+        && identityMatches(userId);
+      allow create: if supportCollection == "دعم والمحادثات"
+        && isSignedIn()
+        && identityMatches(userId);
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if supportCollection == "دعم والمحادثات"
+          && isShoothaAccountReady()
+          && identityMatches(userId);
+        allow create: if supportCollection == "دعم والمحادثات"
+          && isShoothaAccountReady()
+          && identityMatches(userId)
+          && request.resource.data.type == "user"
+          && (
+            request.resource.data.senderId == request.auth.uid ||
+            request.resource.data.senderId == request.auth.token.e164 ||
+            request.resource.data.senderId == request.auth.token.playerId
+          );
+        allow update, delete: if false;
+      }
+    }
+  }
+}

@@ -1,16 +1,25 @@
 import React from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
+import { useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { Colors } from "@/constants/colors";
 import { Venue } from "@/context/BookingsContext";
+import { prefetchVenueDetailQuery } from "@/lib/app-data";
+import { formatIqd } from "@/lib/format-currency";
 
 interface Props {
   venues: Venue[];
   bottomPadding: number;
+  /** عند التضمين في الصفحة الرئيسية: تقليل الحشو السفلي للقائمة */
+  embedded?: boolean;
+  /** يُمرَّر لصفحة الملعب مع `id` */
+  venueExtraParams?: Record<string, string>;
 }
 
-export default function SearchMapView({ venues, bottomPadding }: Props) {
+export default function SearchMapView({ venues, bottomPadding, embedded, venueExtraParams }: Props) {
+  const queryClient = useQueryClient();
+  const listPadBottom = embedded ? bottomPadding + 16 : bottomPadding + 110;
   return (
     <View style={styles.container}>
       <View style={styles.webNote}>
@@ -18,17 +27,24 @@ export default function SearchMapView({ venues, bottomPadding }: Props) {
         <Text style={styles.webNoteText}>الخريطة التفاعلية متاحة على التطبيق المحمول</Text>
       </View>
       <ScrollView
-        contentContainerStyle={[styles.list, { paddingBottom: bottomPadding + 110 }]}
+        nestedScrollEnabled
+        contentContainerStyle={[styles.list, { paddingBottom: listPadBottom }]}
         showsVerticalScrollIndicator={false}
       >
         {venues.map(venue => (
           <Pressable
             key={venue.id}
             style={styles.card}
-            onPress={() => router.push(`/venue/${venue.id}`)}
+            onPressIn={() => prefetchVenueDetailQuery(queryClient, venue.id)}
+            onPress={() =>
+              router.push({
+                pathname: "/venue/[id]",
+                params: { id: venue.id, ...venueExtraParams },
+              })
+            }
           >
             <View style={[styles.colorDot, { backgroundColor: venue.imageColor }]}>
-              <Ionicons name="football" size={16} color="rgba(255,255,255,0.7)" />
+              <Ionicons name="football" size={16} color="#FFFFFF" />
             </View>
             <View style={styles.info}>
               <View style={styles.nameRow}>
@@ -36,6 +52,12 @@ export default function SearchMapView({ venues, bottomPadding }: Props) {
                 <View style={[styles.statusDot, { backgroundColor: venue.isOpen ? Colors.primary : Colors.destructive }]} />
               </View>
               <Text style={styles.location}>{venue.location}</Text>
+              {venue.amenities.length > 0 && (
+                <Text style={styles.amenitiesLine} numberOfLines={1}>
+                  الخدمات: {venue.amenities.slice(0, 4).join("، ")}
+                  {venue.amenities.length > 4 ? ` +${venue.amenities.length - 4}` : ""}
+                </Text>
+              )}
               <View style={styles.coordRow}>
                 <Ionicons name="location-outline" size={12} color={Colors.textTertiary} />
                 <Text style={styles.coords}>
@@ -44,8 +66,10 @@ export default function SearchMapView({ venues, bottomPadding }: Props) {
               </View>
             </View>
             <View style={styles.priceBadge}>
-              <Text style={styles.price}>{(venue.pricePerHour / 1000).toFixed(0)}k</Text>
-              <Text style={styles.priceUnit}>د.ع/س</Text>
+              <Text style={styles.price} numberOfLines={1}>
+                {formatIqd(venue.pricePerHour)}
+              </Text>
+              <Text style={styles.priceUnit}>/hr</Text>
             </View>
           </Pressable>
         ))}
@@ -99,6 +123,12 @@ const styles = StyleSheet.create({
   name: { color: Colors.text, fontSize: 15, fontFamily: "Cairo_600SemiBold" },
   statusDot: { width: 7, height: 7, borderRadius: 4 },
   location: { color: Colors.textSecondary, fontSize: 12, fontFamily: "Cairo_400Regular" },
+  amenitiesLine: {
+    color: Colors.textTertiary,
+    fontSize: 11,
+    fontFamily: "Cairo_400Regular",
+    marginTop: 2,
+  },
   coordRow: { flexDirection: "row", alignItems: "center", gap: 3 },
   coords: { color: Colors.textTertiary, fontSize: 11, fontFamily: "Cairo_400Regular" },
   priceBadge: { alignItems: "center" },

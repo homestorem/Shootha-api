@@ -1,291 +1,94 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   Pressable,
-  Animated,
-  FlatList,
   Platform,
-  Dimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
-import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { Colors } from "@/constants/colors";
 import { useTheme } from "@/context/ThemeContext";
-import { useBookings, formatPrice, Venue } from "@/context/BookingsContext";
 import { VenueCard } from "@/components/VenueCard";
 import { SkeletonVenueCard } from "@/components/SkeletonCard";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const BANNER_HEIGHT = 190;
-
-const ADS = [
-  {
-    id: "1",
-    title: "عرض خاص – صالة كمال الأجسام",
-    subtitle: "خصم 30% على الاشتراك الشهري",
-    icon: "barbell-outline" as const,
-    color: "#0D0D1F",
-    accent: "#4A90D9",
-    gradient: ["#0D0D1F", "#1A1A3E"] as [string, string],
-  },
-  {
-    id: "2",
-    title: "مطعم الملعب",
-    subtitle: "وجبة لاعب مجانية مع كل حجز",
-    icon: "restaurant-outline" as const,
-    color: "#1F0D0D",
-    accent: "#E74C3C",
-    gradient: ["#1F0D0D", "#3E1A1A"] as [string, string],
-  },
-  {
-    id: "3",
-    title: "مشروب الطاقة SportX",
-    subtitle: "احصل على علبتك مجانًا الآن",
-    icon: "flash-outline" as const,
-    color: "#0D1F0D",
-    accent: Colors.primary,
-    gradient: ["#0D1F0D", "#1A3E1A"] as [string, string],
-  },
-];
-
-function AdSlide({ item, width }: { item: typeof ADS[0]; width: number }) {
-  const isGreen = item.accent === Colors.primary;
-  return (
-    <View
-      style={[
-        adSlideStyles.container,
-        { width, backgroundColor: item.color },
-        isGreen && adSlideStyles.glowBorder,
-      ]}
-    >
-      <LinearGradient
-        colors={item.gradient}
-        style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
-      <LinearGradient
-        colors={["transparent", "rgba(0,0,0,0.55)"]}
-        style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-      />
-      <View style={adSlideStyles.content}>
-        <View style={[adSlideStyles.iconRing, { borderColor: item.accent + "40" }]}>
-          <Ionicons name={item.icon} size={30} color={item.accent} />
-        </View>
-        <View style={adSlideStyles.textBlock}>
-          <Text style={adSlideStyles.title}>{item.title}</Text>
-          <Text style={adSlideStyles.subtitle}>{item.subtitle}</Text>
-        </View>
-      </View>
-      <View style={[adSlideStyles.accentLine, { backgroundColor: item.accent }]} />
-    </View>
-  );
-}
-
-const adSlideStyles = StyleSheet.create({
-  container: {
-    height: BANNER_HEIGHT,
-    borderRadius: 18,
-    overflow: "hidden",
-    justifyContent: "flex-end",
-  },
-  glowBorder: {
-    shadowColor: Colors.primary,
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 8,
-  },
-  content: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    paddingHorizontal: 20,
-    paddingBottom: 28,
-  },
-  iconRing: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 1.5,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  textBlock: {
-    flex: 1,
-    gap: 4,
-  },
-  title: {
-    color: Colors.text,
-    fontSize: 22,
-    fontFamily: "Cairo_700Bold",
-  },
-  subtitle: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 14,
-    fontFamily: "Cairo_400Regular",
-  },
-  accentLine: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-    borderRadius: 2,
-  },
-});
-
-function AdsBanner() {
-  const [currentIdx, setCurrentIdx] = useState(0);
-  const flatRef = useRef<FlatList>(null);
-  const bannerWidth = SCREEN_WIDTH - 40;
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentIdx(prev => {
-        const next = (prev + 1) % ADS.length;
-        flatRef.current?.scrollToIndex({ index: next, animated: true });
-        return next;
-      });
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  return (
-    <View style={styles.adWrapper}>
-      <FlatList
-        ref={flatRef}
-        data={ADS}
-        horizontal
-        pagingEnabled
-        scrollEnabled
-        showsHorizontalScrollIndicator={false}
-        renderItem={({ item }) => <AdSlide item={item} width={bannerWidth} />}
-        keyExtractor={item => item.id}
-        getItemLayout={(_, index) => ({ length: bannerWidth, offset: bannerWidth * index, index })}
-        onMomentumScrollEnd={e => {
-          const idx = Math.round(e.nativeEvent.contentOffset.x / bannerWidth);
-          setCurrentIdx(idx);
-        }}
-        snapToInterval={bannerWidth}
-        decelerationRate="fast"
-        contentContainerStyle={{ gap: 0 }}
-      />
-      <View style={styles.adDots}>
-        {ADS.map((_, i) => (
-          <View
-            key={i}
-            style={[
-              styles.adDot,
-              i === currentIdx && styles.adDotActive,
-            ]}
-          />
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function LiveCounter({ venueCount }: { venueCount: number }) {
-  const { colors } = useTheme();
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.08, duration: 800, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, []);
-
-  return (
-    <View style={[styles.liveCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <Animated.View style={[styles.liveDot, { transform: [{ scale: pulseAnim }] }]}>
-        <View style={styles.liveDotInner} />
-      </Animated.View>
-      <View style={styles.liveTextBlock}>
-        <Text style={styles.liveNumber}>{venueCount}</Text>
-        <Text style={[styles.liveLabel, { color: colors.textSecondary }]}>ملعب متاح للحجز في الموصل</Text>
-      </View>
-      <Ionicons name="football-outline" size={22} color={Colors.primary} />
-    </View>
-  );
-}
-
-function RebookCard() {
-  const { bookings, rebookLast } = useBookings();
-  const lastCompleted = bookings.find(b => b.status === "completed");
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-
-  if (!lastCompleted) return null;
-
-  const handleRebook = () => {
-    Animated.sequence([
-      Animated.timing(scaleAnim, { toValue: 0.96, duration: 80, useNativeDriver: true }),
-      Animated.timing(scaleAnim, { toValue: 1, duration: 80, useNativeDriver: true }),
-    ]).start();
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    rebookLast();
-    router.push("/(tabs)/bookings");
-  };
-
-  return (
-    <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, styles.rebookWrapper]}>
-      <LinearGradient
-        colors={["#0F2A1A", "#0A1A0F"]}
-        style={styles.rebookCard}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      >
-        <View style={styles.rebookTop}>
-          <View style={styles.rebookBadge}>
-            <Ionicons name="time-outline" size={12} color={Colors.primary} />
-            <Text style={styles.rebookBadgeText}>آخر حجز</Text>
-          </View>
-          <Text style={styles.rebookVenue}>{lastCompleted.venueName}</Text>
-          <Text style={styles.rebookDetails}>
-            {lastCompleted.fieldSize} · {lastCompleted.time} · {formatPrice(lastCompleted.price)}
-          </Text>
-        </View>
-        <Pressable style={styles.rebookBtn} onPress={handleRebook}>
-          <Ionicons name="refresh" size={16} color="#000" />
-          <Text style={styles.rebookBtnText}>إعادة الحجز للأسبوع القادم</Text>
-        </Pressable>
-      </LinearGradient>
-    </Animated.View>
-  );
-}
-
+import SearchMapView from "@/components/SearchMapView";
+import { GUEST_FULL_ACCESS } from "@/constants/guestAccess";
+import { useGuestPrompt } from "@/context/GuestPromptContext";
+import { fetchVenues } from "@/lib/app-data";
+import * as Location from "expo-location";
+import { AppBrand } from "@/components/AppBrand";
+import { NotificationsButton } from "@/components/NotificationsButton";
+import { AppBackground } from "@/components/AppBackground";
+import { ModernButton } from "@/components/ModernButton";
+import { GlassWelcomeCard } from "@/components/GlassWelcomeCard";
+import { useAuth } from "@/context/AuthContext";
+import { useLocation } from "@/context/LocationContext";
+import { haversineKm } from "@/lib/distance";
+import { PremiumAdsBanner } from "@/components/PremiumAdCarousel";
+import { useLang } from "@/context/LanguageContext";
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
+  const { user, isGuest } = useAuth();
+  const { t } = useLang();
+  const { pushIfLoggedIn } = useGuestPrompt();
+  const { hasPermission, latitude, longitude, requestLocation } = useLocation();
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : 0;
-
-  const { data, isLoading } = useQuery<{ venues: Venue[] }>({
-    queryKey: ["/api/venues"],
+  const [city, setCity] = useState("");
+  const [district, setDistrict] = useState("");
+  const { data: sbVenues = [], isLoading: sbLoading } = useQuery({
+    queryKey: ["venues", "fields"],
+    queryFn: fetchVenues,
     staleTime: 30000,
   });
+  const isLoading = sbLoading;
 
-  const venues = data?.venues ?? [];
-  const topVenues = venues.slice(0, 3);
+  /** يحدّث السياق (lat/lng) ويُظهر الملاعب مرتبة بالقرب؛ الويب يُحمَّل من LocationProvider. */
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    void requestLocation();
+  }, [requestLocation]);
 
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    if (hasPermission !== true) return;
+    (async () => {
+      try {
+        const geo = await Location.reverseGeocodeAsync({
+          latitude,
+          longitude,
+        });
+        if (geo.length > 0) {
+          setCity(geo[0].city || "");
+          setDistrict(geo[0].district || geo[0].subregion || "");
+        }
+      } catch {
+        /* العنوان اختياري */
+      }
+    })();
+  }, [hasPermission, latitude, longitude]);
+
+  const nearbyVenues = useMemo(() => {
+    if (sbVenues.length === 0) return [];
+    if (hasPermission !== true) return [...sbVenues];
+    return [...sbVenues].sort(
+      (a, b) =>
+        haversineKm(latitude, longitude, a.lat, a.lon) -
+        haversineKm(latitude, longitude, b.lat, b.lon),
+    );
+  }, [sbVenues, hasPermission, latitude, longitude]);
+
+  const topVenues = nearbyVenues.slice(0, 5);
+  const mapVenues = nearbyVenues;
   return (
-    <View style={[styles.container, { paddingTop: topPadding, backgroundColor: colors.background }]}>
+    <AppBackground>
+    <View style={[styles.container, { paddingTop: topPadding, backgroundColor: "transparent" }]}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[styles.content, { paddingBottom: bottomPadding + 110 }]}
@@ -293,28 +96,77 @@ export default function HomeScreen() {
       >
         <View style={styles.header}>
           <View>
-            <Text style={[styles.greeting, { color: colors.textSecondary }]}>أهلًا بك</Text>
-            <Text style={[styles.headerTitle, { color: colors.text }]}>اختر ملعبك</Text>
+            <AppBrand size={28} />
+            <Text style={[styles.userLocation, { color: "#FFFFFF" }]}>
+              {city} {district ? `- ${district}` : ""}
+            </Text>
           </View>
-          <Pressable style={[styles.notifBtn, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Ionicons name="notifications-outline" size={22} color={colors.text} />
-          </Pressable>
+
+          <View style={styles.headerActions}>
+            <Pressable
+              style={styles.headerIcon}
+              onPress={() => pushIfLoggedIn("/leaderboard")}
+            >
+              <Ionicons name="trophy" size={24} color={colors.headerIcon} />
+            </Pressable>
+
+            <NotificationsButton />
+          </View>
         </View>
 
-        <AdsBanner />
+        <PremiumAdsBanner />
 
-        <LiveCounter venueCount={venues.length} />
+        <GlassWelcomeCard
+          userName={
+            (isGuest && !GUEST_FULL_ACCESS) || !user || !user.name?.trim()
+              ? t("profile.guestName")
+              : user.name
+          }
+          locationLines={
+            hasPermission === false
+              ? t("home.locationPermissionHint")
+              : city
+                ? `${t("home.locationCityHintPrefix")} ${city}${district ? ` - ${district}` : ""}`
+                : t("home.locationGeneralHint")
+          }
+        />
 
-        <RebookCard />
+        <View style={styles.matchActions}>
+          <View style={styles.matchActionsRow}>
+            <ModernButton
+              title={t("home.randomCreate")}
+              icon="shuffle-outline"
+              variant="primary"
+              onPress={() => pushIfLoggedIn("/random-match-create")}
+            />
+            <ModernButton
+              title={t("home.randomJoin")}
+              icon="people-outline"
+              variant="secondary"
+              pulseGlow={false}
+              onPress={() => pushIfLoggedIn("/random-match-join")}
+            />
+          </View>
+        </View>
+
+        <View style={styles.mapSection}>
+          <View style={[styles.mapContainer, { borderColor: colors.border }]}>
+            <SearchMapView
+              venues={mapVenues}
+              bottomPadding={bottomPadding}
+              embedded
+            />
+          </View>
+        </View>
 
         <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>الملاعب القريبة</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{t("home.nearbyVenues")}</Text>
           <Pressable onPress={() => router.push("/(tabs)/search")}>
-            <Text style={styles.seeAll}>عرض الكل</Text>
+            <Text style={styles.seeAll}>{t("common.seeAll")}</Text>
           </Pressable>
         </View>
 
-        {isLoading ? (
+        {isLoading && nearbyVenues.length === 0 ? (
           <>
             <SkeletonVenueCard />
             <SkeletonVenueCard />
@@ -322,9 +174,9 @@ export default function HomeScreen() {
         ) : topVenues.length === 0 ? (
           <View style={styles.emptyVenues}>
             <Ionicons name="football-outline" size={48} color={colors.textTertiary} />
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>لا توجد ملاعب حالياً</Text>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>{t("home.noVenuesTitle")}</Text>
             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-              ستظهر الملاعب هنا فور تسجيل أصحابها
+              {t("home.noVenuesBody")}
             </Text>
           </View>
         ) : (
@@ -334,6 +186,7 @@ export default function HomeScreen() {
         )}
       </ScrollView>
     </View>
+    </AppBackground>
   );
 }
 
@@ -345,22 +198,13 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { paddingHorizontal: 0 },
   header: {
+    direction: "ltr",
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
     paddingBottom: 16,
     paddingTop: 8,
-  },
-  greeting: {
-    color: Colors.textSecondary,
-    fontSize: 14,
-    fontFamily: "Cairo_400Regular",
-  },
-  headerTitle: {
-    color: Colors.text,
-    fontSize: 26,
-    fontFamily: "Cairo_700Bold",
   },
   notifBtn: {
     width: 42,
@@ -382,116 +226,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.destructive,
     borderWidth: 1.5,
     borderColor: Colors.background,
-  },
-  adWrapper: {
-    marginHorizontal: 20,
-    marginBottom: 16,
-  },
-  adDots: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 6,
-    marginTop: 10,
-  },
-  adDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.textTertiary,
-  },
-  adDotActive: {
-    backgroundColor: Colors.primary,
-    width: 18,
-  },
-  liveCard: {
-    marginHorizontal: 20,
-    marginBottom: 16,
-    backgroundColor: Colors.card,
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  liveDot: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,59,48,0.15)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  liveDotInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: Colors.destructive,
-  },
-  liveTextBlock: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 6,
-  },
-  liveNumber: {
-    color: Colors.destructive,
-    fontSize: 22,
-    fontFamily: "Cairo_700Bold",
-  },
-  liveLabel: {
-    color: Colors.textSecondary,
-    fontSize: 13,
-    fontFamily: "Cairo_400Regular",
-    flex: 1,
-  },
-  rebookWrapper: {
-    marginHorizontal: 20,
-    marginBottom: 16,
-  },
-  rebookCard: {
-    borderRadius: 16,
-    padding: 16,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: "rgba(46,204,113,0.25)",
-  },
-  rebookTop: { gap: 4 },
-  rebookBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginBottom: 2,
-  },
-  rebookBadgeText: {
-    color: Colors.primary,
-    fontSize: 11,
-    fontFamily: "Cairo_600SemiBold",
-  },
-  rebookVenue: {
-    color: Colors.text,
-    fontSize: 17,
-    fontFamily: "Cairo_700Bold",
-  },
-  rebookDetails: {
-    color: Colors.textSecondary,
-    fontSize: 13,
-    fontFamily: "Cairo_400Regular",
-  },
-  rebookBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: 12,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  rebookBtnText: {
-    color: "#000",
-    fontSize: 14,
-    fontFamily: "Cairo_700Bold",
   },
   sectionHeader: {
     flexDirection: "row",
@@ -528,5 +262,49 @@ const styles = StyleSheet.create({
     fontFamily: "Cairo_400Regular",
     textAlign: "center",
     lineHeight: 22,
+  },
+  headerActions: {
+    direction: "ltr",
+    flexDirection: "row",
+    gap: 10,
+  },
+
+  circleBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: Colors.card,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  headerIcon: {
+    padding: 6,
+  },
+  matchActions: {
+    paddingHorizontal: 20,
+    marginBottom: 12,
+  },
+  matchActionsRow: {
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "stretch",
+  },
+  mapSection: {
+    marginHorizontal: 10,
+    marginBottom: 10,
+    gap: 5,
+  },
+  mapContainer: {
+    height: 176,
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+  },
+  userLocation: {
+    fontSize: 13,
+    fontFamily: "Cairo_400Regular",
+    marginTop: 2,
   },
 });

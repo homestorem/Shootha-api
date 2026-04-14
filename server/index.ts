@@ -1,55 +1,28 @@
+import { ENV_PROJECT_ROOT } from "./loadEnv.ts";
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
+import net from "node:net";
+import cors from "cors";
+import { registerRoutes } from "./routes.ts";
 import * as fs from "fs";
 import * as path from "path";
 
 const app = express();
 const log = console.log;
 
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
   }
-}
-
-function setupCors(app: express.Application) {
-  app.use((req, res, next) => {
-    const origins = new Set<string>();
-
-    if (process.env.REPLIT_DEV_DOMAIN) {
-      origins.add(`https://${process.env.REPLIT_DEV_DOMAIN}`);
-    }
-
-    if (process.env.REPLIT_DOMAINS) {
-      process.env.REPLIT_DOMAINS.split(",").forEach((d) => {
-        origins.add(`https://${d.trim()}`);
-      });
-    }
-
-    const origin = req.header("origin");
-
-    // Allow localhost origins for Expo web development (any port)
-    const isLocalhost =
-      origin?.startsWith("http://localhost:") ||
-      origin?.startsWith("http://127.0.0.1:");
-
-    if (origin && (origins.has(origin) || isLocalhost)) {
-      res.header("Access-Control-Allow-Origin", origin);
-      res.header(
-        "Access-Control-Allow-Methods",
-        "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-      );
-      res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-      res.header("Access-Control-Allow-Credentials", "true");
-    }
-
-    if (req.method === "OPTIONS") {
-      return res.sendStatus(200);
-    }
-
-    next();
-  });
 }
 
 function setupBodyParsing(app: express.Application) {
@@ -99,7 +72,7 @@ function setupRequestLogging(app: express.Application) {
 
 function getAppName(): string {
   try {
-    const appJsonPath = path.resolve(process.cwd(), "app.json");
+    const appJsonPath = path.resolve(ENV_PROJECT_ROOT, "app.json");
     const appJsonContent = fs.readFileSync(appJsonPath, "utf-8");
     const appJson = JSON.parse(appJsonContent);
     return appJson.expo?.name || "App Landing Page";
@@ -110,7 +83,7 @@ function getAppName(): string {
 
 function serveExpoManifest(platform: string, res: Response) {
   const manifestPath = path.resolve(
-    process.cwd(),
+    ENV_PROJECT_ROOT,
     "static-build",
     platform,
     "manifest.json",
@@ -162,7 +135,7 @@ function serveLandingPage({
 
 function configureExpoAndLanding(app: express.Application) {
   const templatePath = path.resolve(
-    process.cwd(),
+    ENV_PROJECT_ROOT,
     "server",
     "templates",
     "landing-page.html",
@@ -198,8 +171,8 @@ function configureExpoAndLanding(app: express.Application) {
     next();
   });
 
-  app.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
-  app.use(express.static(path.resolve(process.cwd(), "static-build")));
+  app.use("/assets", express.static(path.resolve(ENV_PROJECT_ROOT, "assets")));
+  app.use(express.static(path.resolve(ENV_PROJECT_ROOT, "static-build")));
 
   log("Expo routing: Checking expo-platform header on / and /manifest");
 }
@@ -225,8 +198,25 @@ function setupErrorHandler(app: express.Application) {
   });
 }
 
+/** يتحقق أن المنفذ متاح قبل ربط HTTP (تجنّب EADDRINUSE) */
+function isPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const s = net.createServer();
+    s.once("error", () => resolve(false));
+    s.listen(port, "0.0.0.0", () => {
+      s.close(() => resolve(true));
+    });
+  });
+}
+
+async function findFirstFreePort(startPort: number, maxAttempts = 15): Promise<number> {
+  for (let p = startPort; p < startPort + maxAttempts; p++) {
+    if (await isPortFree(p)) return p;
+  }
+  throw new Error(`No free port in range ${startPort}-${startPort + maxAttempts - 1}`);
+}
+
 (async () => {
-  setupCors(app);
   setupBodyParsing(app);
   setupRequestLogging(app);
 
@@ -236,8 +226,13 @@ function setupErrorHandler(app: express.Application) {
 
   setupErrorHandler(app);
 
-  const port = parseInt(process.env.PORT || "5000", 10);
+  const preferredPort = parseInt(process.env.PORT || "4001", 10);
+  const port = await findFirstFreePort(preferredPort);
+  if (port !== preferredPort) {
+    log(`Port ${preferredPort} busy — using ${port}. Set EXPO_PUBLIC_API_URL=http://localhost:${port}`);
+  }
   server.listen(port, "0.0.0.0", () => {
-    log(`express server serving on port ${port}`);
+    log(`Server running on http://localhost:${port}`);
+    log(`API: http://localhost:${port}/api/venues`);
   });
 })();

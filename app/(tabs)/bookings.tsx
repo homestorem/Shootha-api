@@ -16,40 +16,51 @@ import { Colors } from "@/constants/colors";
 import { useTheme } from "@/context/ThemeContext";
 import { useBookings, Booking, formatDate, formatPrice } from "@/context/BookingsContext";
 import { useAuth } from "@/context/AuthContext";
-import { GuestModal } from "@/components/GuestModal";
+import { GUEST_FULL_ACCESS } from "@/constants/guestAccess";
+import { useGuestPrompt } from "@/context/GuestPromptContext";
+import { AppBrand } from "@/components/AppBrand";
+import { NotificationsButton } from "@/components/NotificationsButton";
+import { AppBackground } from "@/components/AppBackground";
+import { useLang } from "@/context/LanguageContext";
 
-const TABS = ["القادمة", "المكتملة", "الملغاة"];
-
+const TABS = [
+  { id: "active", labelKey: "bookings.tabActive" },
+  { id: "upcoming", labelKey: "bookings.tabUpcoming" },
+  { id: "past", labelKey: "bookings.tabPast" },
+];
 function BookingCard({ booking }: { booking: Booking }) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
+  const { t } = useLang();
   const { cancelBooking } = useBookings();
+  const secondaryReadable = isDark ? "#D8D8E0" : colors.textSecondary;
+  const tertiaryReadable = isDark ? "#B3B3BD" : colors.textTertiary;
 
   const statusColor = {
-    upcoming: Colors.primary,
-    active: Colors.warning,
-    completed: Colors.textTertiary,
-    cancelled: Colors.destructive,
+    upcoming: colors.primary,
+    active: colors.warning,
+    completed: tertiaryReadable,
+    cancelled: colors.destructive,
   }[booking.status];
 
   const statusLabel = {
-    upcoming: "قادمة",
-    active: "جارية",
-    completed: "مكتملة",
-    cancelled: "ملغاة",
+    upcoming: t("bookings.status.upcoming"),
+    active: t("bookings.status.active"),
+    completed: t("bookings.status.completed"),
+    cancelled: t("bookings.status.cancelled"),
   }[booking.status];
 
   const handleCancel = () => {
     Alert.alert(
-      "إلغاء الحجز",
-      "هل تريد إلغاء هذا الحجز؟",
+      t("bookings.cancelTitle"),
+      t("bookings.cancelConfirm"),
       [
-        { text: "تراجع", style: "cancel" },
+        { text: t("common.cancel"), style: "cancel" },
         {
-          text: "إلغاء الحجز",
+          text: t("bookings.cancelAction"),
           style: "destructive",
           onPress: () => {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            cancelBooking(booking.id);
+            cancelBooking(booking.id, booking);
           },
         },
       ]
@@ -70,36 +81,36 @@ function BookingCard({ booking }: { booking: Booking }) {
           <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
           <Text style={[styles.statusLabel, { color: statusColor }]}>{statusLabel}</Text>
         </View>
-        <Text style={styles.dateText}>{formatDate(booking.date)}</Text>
+        <Text style={[styles.dateText, { color: secondaryReadable }]}>{formatDate(booking.date)}</Text>
       </View>
 
       <Text style={[styles.venueName, { color: colors.text }]}>{booking.venueName}</Text>
 
       <View style={styles.detailsRow}>
         <View style={styles.detailItem}>
-          <Ionicons name="football-outline" size={13} color={colors.textSecondary} />
-          <Text style={[styles.detailText, { color: colors.textSecondary }]}>{booking.fieldSize}</Text>
+          <Ionicons name="football-outline" size={13} color={secondaryReadable} />
+          <Text style={[styles.detailText, { color: secondaryReadable }]}>{booking.fieldSize}</Text>
         </View>
         <View style={styles.detailItem}>
-          <Ionicons name="time-outline" size={13} color={colors.textSecondary} />
-          <Text style={[styles.detailText, { color: colors.textSecondary }]}>{booking.time}</Text>
+          <Ionicons name="time-outline" size={13} color={secondaryReadable} />
+          <Text style={[styles.detailText, { color: secondaryReadable }]}>{booking.time}</Text>
         </View>
         <View style={styles.detailItem}>
-          <Ionicons name="people-outline" size={13} color={colors.textSecondary} />
-          <Text style={[styles.detailText, { color: colors.textSecondary }]}>{booking.players.length} لاعب</Text>
+          <Ionicons name="people-outline" size={13} color={secondaryReadable} />
+          <Text style={[styles.detailText, { color: secondaryReadable }]}>{t("bookings.playersCount", { count: booking.players.length })}</Text>
         </View>
       </View>
 
       <View style={styles.cardBottom}>
         <Text style={[styles.price, { color: colors.text }]}>{formatPrice(booking.price)}</Text>
-        {booking.status === "upcoming" && (
+        {(booking.status === "upcoming" || booking.status === "active") && (
           <View style={styles.actionRow}>
             <Pressable style={styles.detailsBtn} onPress={() => router.push({ pathname: "/booking/[id]", params: { id: booking.id } })}>
-              <Text style={styles.detailsBtnText}>تفاصيل</Text>
-              <Ionicons name="chevron-back" size={14} color={Colors.primary} />
+              <Text style={[styles.detailsBtnText, { color: colors.primary }]}>{t("common.details")}</Text>
+              <Ionicons name="chevron-back" size={14} color={colors.primary} />
             </Pressable>
-            <Pressable style={styles.cancelBtn} onPress={handleCancel}>
-              <Ionicons name="close" size={15} color={Colors.destructive} />
+            <Pressable style={[styles.cancelBtn, { backgroundColor: "rgba(255,59,48,0.12)" }]} onPress={handleCancel}>
+              <Ionicons name="close" size={15} color={colors.destructive} />
             </Pressable>
           </View>
         )}
@@ -110,52 +121,95 @@ function BookingCard({ booking }: { booking: Booking }) {
 
 export default function BookingsScreen() {
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { bookings, isLoading } = useBookings();
+  const { t } = useLang();
+  const tabTextColor = isDark ? "#D8D8E0" : colors.textSecondary;
   const { isGuest } = useAuth();
-  const [activeTab, setActiveTab] = useState("القادمة");
-  const [showGuestModal, setShowGuestModal] = useState(false);
+  const { promptLogin } = useGuestPrompt();
+  const [activeTab, setActiveTab] = useState("upcoming");
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : 0;
 
-  const filtered = isGuest ? [] : bookings.filter(b => {
-    if (activeTab === "القادمة") return b.status === "upcoming" || b.status === "active";
-    if (activeTab === "المكتملة") return b.status === "completed";
-    if (activeTab === "الملغاة") return b.status === "cancelled";
-    return true;
-  });
+  const filtered =
+    isGuest && !GUEST_FULL_ACCESS
+      ? []
+      : bookings.filter((b) => {
+
+  if (activeTab === "active")
+    return b.status === "active";
+
+  if (activeTab === "upcoming")
+    return b.status === "upcoming";
+
+  if (activeTab === "past")
+    return b.status === "completed" || b.status === "cancelled";
+
+  return true;
+});
 
   return (
-    <View style={[styles.container, { paddingTop: topPadding, backgroundColor: colors.background }]}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.text }]}>حجوزاتي</Text>
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{isGuest ? 0 : bookings.filter(b => b.status === "upcoming").length}</Text>
-        </View>
-      </View>
+    <AppBackground>
+    <View style={[styles.container, { paddingTop: topPadding, backgroundColor: "transparent" }]}>
+     <View style={styles.header}>
 
-      {isGuest && (
-        <Pressable style={styles.guestBanner} onPress={() => setShowGuestModal(true)}>
-          <Ionicons name="lock-closed-outline" size={16} color={Colors.warning} />
-          <Text style={styles.guestBannerText}>سجّل حسابك لحجز الملاعب وعرض سجل حجوزاتك</Text>
-          <Ionicons name="chevron-back" size={14} color={Colors.warning} />
+  <View style={styles.headerLeft}>
+    <AppBrand size={22} />
+    <View style={styles.pageTitleRow}>
+      <Text style={[styles.pageTitle, { color: colors.text }]}>{t("bookings.title")}</Text>
+      <View style={styles.badge}>
+        <Text style={styles.badgeText}>
+          {isGuest ? 0 : bookings.filter(b => b.status === "upcoming").length}
+        </Text>
+      </View>
+    </View>
+  </View>
+<NotificationsButton />
+
+</View>
+
+      {isGuest && !GUEST_FULL_ACCESS && (
+        <Pressable
+          style={[styles.guestBanner, { backgroundColor: "rgba(255,149,0,0.08)", borderColor: "rgba(255,149,0,0.25)" }]}
+          onPress={() => promptLogin()}
+        >
+          <Ionicons name="lock-closed-outline" size={16} color={colors.warning} />
+          <Text style={[styles.guestBannerText, { color: colors.warning }]}>{t("bookings.guestBanner")}</Text>
+          <Ionicons name="chevron-back" size={14} color={colors.warning} />
         </Pressable>
       )}
 
-      <View style={styles.tabsRow}>
-        {TABS.map(tab => (
-          <Pressable
-            key={tab}
-            style={[styles.tab, activeTab === tab && styles.tabActive]}
-            onPress={() => setActiveTab(tab)}
-          >
-            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-              {tab}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+     <View style={[styles.tabsContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+
+  {TABS.map(tab => (
+
+    <Pressable
+      key={tab.id}
+      style={[
+        styles.tabBtn,
+        activeTab === tab.id && styles.tabBtnActive,
+        activeTab === tab.id && { backgroundColor: "rgba(15,157,88,0.16)" },
+      ]}
+      onPress={() => setActiveTab(tab.id)}
+    >
+
+      <Text
+        style={[
+          styles.tabBtnText,
+          { color: tabTextColor },
+          activeTab === tab.id && styles.tabBtnTextActive,
+          activeTab === tab.id && { color: colors.primary },
+        ]}
+      >
+        {t(tab.labelKey)}
+      </Text>
+
+    </Pressable>
+
+  ))}
+
+</View>
 
       <ScrollView
         style={styles.scroll}
@@ -164,14 +218,14 @@ export default function BookingsScreen() {
       >
         {!isLoading && filtered.length === 0 ? (
           <View style={styles.emptyState}>
-            <Ionicons name="calendar-outline" size={48} color={Colors.textTertiary} />
-            <Text style={styles.emptyTitle}>لا توجد حجوزات</Text>
-            <Text style={styles.emptyText}>
-              {activeTab === "القادمة" ? "احجز ملعبك الآن وابدأ اللعب" : "لا يوجد سجل هنا"}
+            <Ionicons name="calendar-outline" size={48} color="#FFFFFF" />
+            <Text style={[styles.emptyTitle, { color: "#FFFFFF" }]}>{t("bookings.emptyTitle")}</Text>
+            <Text style={[styles.emptyText, { color: "#FFFFFF" }]}>
+              {activeTab === "upcoming" ? t("bookings.emptyUpcoming") : t("bookings.emptyPast")}
             </Text>
-            {activeTab === "القادمة" && (
-              <Pressable style={styles.bookNowBtn} onPress={() => router.push("/(tabs)/search")}>
-                <Text style={styles.bookNowText}>ابحث عن ملعب</Text>
+            {activeTab === "upcoming" && (
+              <Pressable style={[styles.bookNowBtn, { backgroundColor: colors.primary }]} onPress={() => router.push("/(tabs)/search")}>
+                <Text style={styles.bookNowText}>{t("bookings.searchVenue")}</Text>
               </Pressable>
             )}
           </View>
@@ -179,8 +233,8 @@ export default function BookingsScreen() {
           filtered.map(b => <BookingCard key={b.id} booking={b} />)
         )}
       </ScrollView>
-      <GuestModal visible={showGuestModal} onClose={() => setShowGuestModal(false)} />
     </View>
+    </AppBackground>
   );
 }
 
@@ -190,8 +244,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   header: {
+    direction: "ltr",
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 16,
@@ -201,6 +257,11 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: 26,
     fontFamily: "Cairo_700Bold",
+  },
+  pageTitle: {
+    fontSize: 14,
+    fontFamily: "Cairo_600SemiBold",
+    marginTop: 2,
   },
   badge: {
     backgroundColor: Colors.primary,
@@ -249,7 +310,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   tabActive: {
-    backgroundColor: "rgba(46,204,113,0.15)",
+    backgroundColor: "rgba(15,157,88,0.15)",
     borderColor: Colors.primary,
   },
   tabText: {
@@ -354,7 +415,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   emptyState: {
+    width: "100%",
+    minHeight: 300,
     alignItems: "center",
+    justifyContent: "center",
     paddingVertical: 60,
     gap: 12,
   },
@@ -381,4 +445,44 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "Cairo_700Bold",
   },
+  tabsContainer:{
+flexDirection:"row",
+marginHorizontal:20,
+borderWidth: 1,
+borderRadius:14,
+padding:4,
+marginBottom:16
+},
+
+tabBtn:{
+flex:1,
+alignItems:"center",
+paddingVertical:8,
+borderRadius:10
+},
+
+tabBtnActive:{
+backgroundColor:"rgba(15,157,88,0.16)"
+},
+
+tabBtnText:{
+fontFamily:"Cairo_600SemiBold",
+fontSize:13,
+color:Colors.textSecondary
+},
+
+tabBtnTextActive:{
+color:Colors.primary
+},
+
+headerLeft:{
+flexDirection:"column",
+alignItems:"flex-start",
+gap:4
+},
+pageTitleRow:{
+flexDirection:"row",
+alignItems:"center",
+gap:8
+},
 });

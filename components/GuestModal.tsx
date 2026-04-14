@@ -51,12 +51,14 @@ export function GuestModal({ visible, onClose }: GuestModalProps) {
         }),
       ]).start();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- قيم Animated من useRef ثابتة
   }, [visible]);
-
   const handleLogin = () => {
-    onClose();
-    router.push("/select-role");
-  };
+  onClose();
+  setTimeout(() => {
+    router.push("/auth/player/login");
+  }, 200);
+};
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
@@ -143,9 +145,9 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: "rgba(46,204,113,0.12)",
+    backgroundColor: "rgba(15,157,88,0.12)",
     borderWidth: 2,
-    borderColor: "rgba(46,204,113,0.25)",
+    borderColor: "rgba(15,157,88,0.25)",
     alignItems: "center",
     justifyContent: "center",
   },

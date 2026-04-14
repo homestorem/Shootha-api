@@ -18,15 +18,54 @@ export type OwnerBooking = {
   date: string;
   time: string;
   duration: number;
+  /** سعر الساعة (يتوافق مع لوحة المالك والإحصائيات: المجموع ≈ price × duration) */
   price: number;
   fieldSize: string;
   status: "upcoming" | "active" | "completed" | "cancelled";
   source: "app" | "manual";
   createdAt: string;
   reminderSent?: boolean;
+  /** معرّف اللاعب في التطبيق (مثلاً Firebase UID) عند الحجز من التطبيق */
+  playerUserId?: string | null;
+  paymentMethod?: string | null;
+  paymentPaid?: boolean;
+  /** اسم الملعب وقت الحجز (للعرض عند اللاعب) */
+  venueNameSnapshot?: string | null;
+  /** عند الإلغاء من التطبيق — لقطة بيانات من مرآة Firestore */
+  cancelledAt?: string;
+  cancelledWhileUiStatus?: "upcoming" | "active" | "completed";
+  cancellationSnapshot?: Record<string, unknown>;
 };
 
 type InternalUser = AuthUser & { deletedAt?: string };
+type OtpVerifyResult =
+  | { ok: true }
+  | { ok: false; reason: "not_found" | "expired" | "locked" | "invalid"; retryAfterSec?: number };
+type OtpSendCheckResult = { ok: true } | { ok: false; retryAfterSec: number };
+
+export type WalletTransaction = {
+  id: string;
+  userId: string;
+  type: "redeem" | "payment";
+  amount: number;
+  balanceAfter: number;
+  label: string;
+  createdAt: string;
+};
+
+type PrepaidCardRow = {
+  amount: number;
+  createdAt: string;
+  redeemedAt?: string;
+  redeemedByUserId?: string;
+};
+
+export function normalizePrepaidCardCode(raw: string): string {
+  return String(raw || "")
+    .replace(/\s+/g, "")
+    .replace(/-/g, "")
+    .toUpperCase();
+}
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -62,8 +101,9 @@ export interface IStorage {
     ownerDeviceLon?: string;
     gender?: string;
   }): Promise<AuthUser>;
+  canSendOtp(phone: string): Promise<OtpSendCheckResult>;
   storeOtp(phone: string, otp: string): Promise<void>;
-  verifyOtp(phone: string, otp: string): Promise<boolean>;
+  verifyOtp(phone: string, otp: string): Promise<OtpVerifyResult>;
   createSupportMessage(data: { userId: string; subject: string; message: string }): Promise<SupportMessage>;
   getSupportMessages(): Promise<SupportMessage[]>;
   getAllOwners(): Promise<AuthUser[]>;
@@ -75,22 +115,195 @@ export interface IStorage {
     id: string,
     updates: Partial<Omit<OwnerBooking, "id" | "ownerId" | "createdAt">>
   ): Promise<OwnerBooking>;
-  cancelOwnerBooking(id: string): Promise<void>;
+  cancelOwnerBooking(
+    id: string,
+    meta?: {
+      cancelledWhileUiStatus?: "upcoming" | "active" | "completed";
+      cancellationSnapshot?: Record<string, unknown>;
+    },
+  ): Promise<void>;
+  getBookingsForPlayer(
+    playerUserId: string | null,
+    playerPhone: string | null
+  ): Promise<OwnerBooking[]>;
+  getWalletBalance(userId: string): Promise<number>;
+  getWalletTransactions(userId: string, limit: number): Promise<WalletTransaction[]>;
+  redeemPrepaidCard(
+    userId: string,
+    rawCode: string
+  ): Promise<
+    | { ok: true; amount: number; balance: number }
+    | { ok: false; message: string }
+  >;
+  createPrepaidCard(code: string, amount: number): Promise<void>;
+  debitWallet(
+    userId: string,
+    amount: number,
+    label: string,
+  ): Promise<{ ok: true; balance: number } | { ok: false; message: string }>;
 }
 
 export class MemStorage implements IStorage {
   private users: Map<string, User>;
   private authUsers: Map<string, InternalUser>;
-  private otpStore: Map<string, { otp: string; expiresAt: number }>;
+  /** رصيد بالدينار العراقي (عدد صحيح) */
+  private walletBalances: Map<string, number>;
+  private prepaidCards: Map<string, PrepaidCardRow>;
+  private walletTx: WalletTransaction[];
+  private otpStore: Map<
+    string,
+    {
+      otp: string;
+      expiresAt: number;
+      sentAt: number;
+      sentCount: number;
+      windowStart: number;
+      failedAttempts: number;
+      lockUntil: number;
+    }
+  >;
   private supportMessages: Map<string, SupportMessage>;
   private ownerBookings: Map<string, OwnerBooking>;
 
   constructor() {
     this.users = new Map();
     this.authUsers = new Map();
+    this.walletBalances = new Map();
+    this.prepaidCards = new Map();
+    this.walletTx = [];
     this.otpStore = new Map();
     this.supportMessages = new Map();
     this.ownerBookings = new Map();
+    /** يطابق عميل «المتابعة كضيف» — لمحفظة بدون تسجيل عند تفعيل GUEST_FULL_ACCESS */
+    const guestRow: InternalUser = {
+      id: "guest",
+      phone: "__guest__",
+      name: "ضيف",
+      role: "guest",
+      deviceId: null,
+      noShowCount: "0",
+      isBanned: false,
+      createdAt: new Date().toISOString(),
+      passwordHash: null,
+      dateOfBirth: null,
+      profileImage: null,
+      venueName: null,
+      areaName: null,
+      fieldSize: null,
+      bookingPrice: null,
+      hasBathrooms: null,
+      hasMarket: null,
+      latitude: null,
+      longitude: null,
+      venueImages: null,
+      ownerDeviceLat: null,
+      ownerDeviceLon: null,
+      expoPublicToken: null,
+      gender: null,
+    };
+    this.authUsers.set("guest", guestRow);
+  }
+
+  async getWalletBalance(userId: string): Promise<number> {
+    return this.walletBalances.get(userId) ?? 0;
+  }
+
+  async getWalletTransactions(userId: string, limit: number): Promise<WalletTransaction[]> {
+    return this.walletTx
+      .filter((t) => t.userId === userId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, limit);
+  }
+
+  async createPrepaidCard(rawCode: string, amount: number): Promise<void> {
+    const code = normalizePrepaidCardCode(rawCode);
+    if (code.length < 8) throw new Error("رمز البطاقة قصير جداً (8 أحرف على الأقل)");
+    if (!Number.isFinite(amount) || amount < 1000) {
+      throw new Error("Amount must be at least 1,000 IQD");
+    }
+    if (this.prepaidCards.has(code)) {
+      throw new Error("هذا الرمز مسجّل مسبقاً");
+    }
+    this.prepaidCards.set(code, {
+      amount: Math.floor(amount),
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async redeemPrepaidCard(
+    userId: string,
+    rawCode: string
+  ): Promise<
+    { ok: true; amount: number; balance: number } | { ok: false; message: string }
+  > {
+    const code = normalizePrepaidCardCode(rawCode);
+    if (code.length < 8) {
+      return { ok: false, message: "أدخل رقم البطاقة كاملاً" };
+    }
+    const user = this.authUsers.get(userId);
+    if (!user || user.deletedAt) {
+      return { ok: false, message: "المستخدم غير موجود" };
+    }
+    const card = this.prepaidCards.get(code);
+    if (!card) {
+      return { ok: false, message: "رقم البطاقة غير صحيح أو غير موجود" };
+    }
+    if (card.redeemedAt) {
+      return { ok: false, message: "هذه البطاقة مُستخدمة مسبقاً" };
+    }
+    const prev = this.walletBalances.get(userId) ?? 0;
+    const next = prev + card.amount;
+    this.walletBalances.set(userId, next);
+    const now = new Date().toISOString();
+    this.prepaidCards.set(code, {
+      ...card,
+      redeemedAt: now,
+      redeemedByUserId: userId,
+    });
+    const tx: WalletTransaction = {
+      id: randomUUID(),
+      userId,
+      type: "redeem",
+      amount: card.amount,
+      balanceAfter: next,
+      label: "شحن عبر بطاقة رصيد",
+      createdAt: now,
+    };
+    this.walletTx.push(tx);
+    return { ok: true, amount: card.amount, balance: next };
+  }
+
+  async debitWallet(
+    userId: string,
+    amount: number,
+    label: string,
+  ): Promise<{ ok: true; balance: number } | { ok: false; message: string }> {
+    const user = this.authUsers.get(userId);
+    if (!user || user.deletedAt) {
+      return { ok: false, message: "المستخدم غير موجود" };
+    }
+    const n = Math.floor(Number(amount));
+    if (!Number.isFinite(n) || n < 1) {
+      return { ok: false, message: "المبلغ غير صالح" };
+    }
+    const prev = this.walletBalances.get(userId) ?? 0;
+    if (prev < n) {
+      return { ok: false, message: "الرصيد غير كافٍ" };
+    }
+    const next = prev - n;
+    this.walletBalances.set(userId, next);
+    const now = new Date().toISOString();
+    const tx: WalletTransaction = {
+      id: randomUUID(),
+      userId,
+      type: "payment",
+      amount: n,
+      balanceAfter: next,
+      label: label.slice(0, 200) || "دفع من المحفظة",
+      createdAt: now,
+    };
+    this.walletTx.push(tx);
+    return { ok: true, balance: next };
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -214,24 +427,73 @@ export class MemStorage implements IStorage {
   }
 
   async storeOtp(phone: string, otp: string): Promise<void> {
+    const now = Date.now();
+    const prev = this.otpStore.get(phone);
+    const windowMs = 10 * 60 * 1000;
+    const inWindow = prev && now - prev.windowStart < windowMs;
     this.otpStore.set(phone, {
       otp,
-      expiresAt: Date.now() + 5 * 60 * 1000,
+      expiresAt: now + 5 * 60 * 1000,
+      sentAt: now,
+      sentCount: inWindow ? (prev?.sentCount ?? 0) + 1 : 1,
+      windowStart: inWindow ? (prev?.windowStart ?? now) : now,
+      failedAttempts: 0,
+      lockUntil: 0,
     });
   }
 
-  async verifyOtp(phone: string, otp: string): Promise<boolean> {
+  async canSendOtp(phone: string): Promise<OtpSendCheckResult> {
+    const now = Date.now();
+    const existing = this.otpStore.get(phone);
+    if (!existing) return { ok: true };
+    if (existing.lockUntil > now) {
+      return {
+        ok: false,
+        retryAfterSec: Math.ceil((existing.lockUntil - now) / 1000),
+      };
+    }
+    const cooldownMs = 45 * 1000;
+    const waitCooldown = existing.sentAt + cooldownMs - now;
+    if (waitCooldown > 0) {
+      return { ok: false, retryAfterSec: Math.ceil(waitCooldown / 1000) };
+    }
+    const sendLockAttempts = 2;
+    if (existing.sentCount >= sendLockAttempts) {
+      const lockMs = 60 * 60 * 1000;
+      this.otpStore.set(phone, { ...existing, lockUntil: now + lockMs });
+      return { ok: false, retryAfterSec: Math.ceil(lockMs / 1000) };
+    }
+    return { ok: true };
+  }
+
+  async verifyOtp(phone: string, otp: string): Promise<OtpVerifyResult> {
     const stored = this.otpStore.get(phone);
-    if (!stored) return false;
-    if (Date.now() > stored.expiresAt) {
+    if (!stored) return { ok: false, reason: "not_found" };
+    const now = Date.now();
+    if (stored.lockUntil > now) {
+      return {
+        ok: false,
+        reason: "locked",
+        retryAfterSec: Math.ceil((stored.lockUntil - now) / 1000),
+      };
+    }
+    if (now > stored.expiresAt) {
       this.otpStore.delete(phone);
-      return false;
+      return { ok: false, reason: "expired" };
     }
     if (stored.otp === otp) {
       this.otpStore.delete(phone);
-      return true;
+      return { ok: true };
     }
-    return false;
+    const failedAttempts = stored.failedAttempts + 1;
+    const maxAttempts = 5;
+    if (failedAttempts >= maxAttempts) {
+      const lockMs = 10 * 60 * 1000;
+      this.otpStore.set(phone, { ...stored, failedAttempts, lockUntil: now + lockMs });
+      return { ok: false, reason: "locked", retryAfterSec: Math.ceil(lockMs / 1000) };
+    }
+    this.otpStore.set(phone, { ...stored, failedAttempts });
+    return { ok: false, reason: "invalid" };
   }
 
   async createSupportMessage(data: {
@@ -303,11 +565,49 @@ export class MemStorage implements IStorage {
     return updated;
   }
 
-  async cancelOwnerBooking(id: string): Promise<void> {
+  async cancelOwnerBooking(
+    id: string,
+    meta?: {
+      cancelledWhileUiStatus?: "upcoming" | "active" | "completed";
+      cancellationSnapshot?: Record<string, unknown>;
+    },
+  ): Promise<void> {
     const booking = this.ownerBookings.get(id);
     if (booking) {
-      this.ownerBookings.set(id, { ...booking, status: "cancelled" });
+      this.ownerBookings.set(id, {
+        ...booking,
+        status: "cancelled",
+        cancelledAt: new Date().toISOString(),
+        ...(meta?.cancelledWhileUiStatus
+          ? { cancelledWhileUiStatus: meta.cancelledWhileUiStatus }
+          : {}),
+        ...(meta?.cancellationSnapshot
+          ? { cancellationSnapshot: meta.cancellationSnapshot }
+          : {}),
+      });
     }
+  }
+
+  async getBookingsForPlayer(
+    playerUserId: string | null,
+    playerPhone: string | null
+  ): Promise<OwnerBooking[]> {
+    const digits = (s: string | null | undefined) => String(s ?? "").replace(/\D/g, "");
+    const tail = (d: string) => (d.length >= 10 ? d.slice(-10) : d);
+    const phoneNorm = tail(digits(playerPhone));
+    return Array.from(this.ownerBookings.values())
+      .filter((b) => {
+        const byUid = Boolean(playerUserId && b.playerUserId && b.playerUserId === playerUserId);
+        const byPhone =
+          Boolean(phoneNorm.length >= 8 && b.playerPhone) &&
+          tail(digits(b.playerPhone)) === phoneNorm;
+        return byUid || byPhone;
+      })
+      .sort((a, b) => {
+        const dc = b.date.localeCompare(a.date);
+        if (dc !== 0) return dc;
+        return b.time.localeCompare(a.time);
+      });
   }
 }
 

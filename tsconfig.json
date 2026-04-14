@@ -3,6 +3,7 @@
   "compilerOptions": {
     "baseUrl": ".",
     "strict": true,
+    "allowImportingTsExtensions": true,
     "paths": {
       "@/*": [
         "./*"
@@ -15,6 +16,7 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    "**/*.js",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
   ]

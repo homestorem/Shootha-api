@@ -11,18 +11,42 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { Colors } from "@/constants/colors";
 import { useTheme } from "@/context/ThemeContext";
+import { useLang } from "@/context/LanguageContext";
+import {
+  detectMisspelledWords,
+  sanitizeInput,
+  suggestWord,
+  validatePersonName,
+  validatePhoneByCountry,
+} from "@/lib/input-intelligence";
 
 interface AuthInputProps extends TextInputProps {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   error?: string;
   isPassword?: boolean;
+  /** شاشات تسجيل الدخول/التسجيل فوق صورة — تباين أعلى للعناوين والنصوص */
+  authEmphasis?: boolean;
+  smartMode?: "none" | "name" | "phone" | "generic";
+  countryCode?: string;
 }
 
-export function AuthInput({ label, icon, error, isPassword, ...rest }: AuthInputProps) {
+export function AuthInput({
+  label,
+  icon,
+  error,
+  isPassword,
+  authEmphasis,
+  smartMode = "none",
+  countryCode = "IQ",
+  ...rest
+}: AuthInputProps) {
   const { colors } = useTheme();
+  const { language, textAlign, writingDirection, t } = useLang();
   const [isFocused, setIsFocused] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [smartError, setSmartError] = useState<string | undefined>(undefined);
+  const [spellIssues, setSpellIssues] = useState<string[]>([]);
   const glowAnim = useRef(new Animated.Value(0)).current;
 
   const handleFocus = () => {
@@ -49,9 +73,49 @@ export function AuthInput({ label, icon, error, isPassword, ...rest }: AuthInput
     outputRange: [0, 0.35],
   });
 
+  /** شاشات المصادقة فوق صورة: عناوين بيضاء وتباين عالٍ */
+  const labelColor = authEmphasis ? "#FFFFFF" : colors.textSecondary;
+  const placeholderColor = authEmphasis ? colors.textSecondary : colors.textTertiary;
+  const authIconColor = authEmphasis
+    ? isFocused
+      ? Colors.primary
+      : "#FFFFFF"
+    : isFocused
+      ? Colors.primary
+      : colors.textSecondary;
+
+  const handleSmartChange = (value: string) => {
+    const safe = sanitizeInput(value, /[\p{L}\d\s@.+_'-]/u);
+    if (smartMode === "name") {
+      setSmartError(validatePersonName(safe) || safe.length === 0 ? undefined : t("invalidName"));
+    } else if (smartMode === "phone") {
+      setSmartError(
+        validatePhoneByCountry(safe, countryCode) || safe.length === 0 ? undefined : t("invalidPhone"),
+      );
+    } else {
+      setSmartError(undefined);
+    }
+
+    if (smartMode === "generic" || smartMode === "name") {
+      setSpellIssues(detectMisspelledWords(safe, language));
+    } else {
+      setSpellIssues([]);
+    }
+    rest.onChangeText?.(safe);
+  };
+
   return (
     <View style={styles.wrapper}>
-      <Text style={[styles.label, { color: colors.textSecondary }]}>{label}</Text>
+      <Text
+        style={[
+          styles.label,
+          authEmphasis && styles.labelAuth,
+          authEmphasis && styles.labelAuthOnImage,
+          { color: labelColor },
+        ]}
+      >
+        {label}
+      </Text>
       <Animated.View
         style={[
           styles.inputContainer,
@@ -66,30 +130,50 @@ export function AuthInput({ label, icon, error, isPassword, ...rest }: AuthInput
           },
         ]}
       >
-        <Ionicons
-          name={icon}
-          size={18}
-          color={isFocused ? Colors.primary : colors.textSecondary}
-        />
+        <Ionicons name={icon} size={18} color={authIconColor} />
         <TextInput
           {...rest}
-          style={[styles.input, { color: colors.text }]}
-          placeholderTextColor={colors.textTertiary}
+          style={[
+            styles.input,
+            {
+              color: colors.text,
+              textAlign,
+              writingDirection,
+              textDecorationLine: spellIssues.length ? "underline" : "none",
+              textDecorationColor: spellIssues.length ? Colors.destructive : "transparent",
+            },
+          ]}
+          placeholderTextColor={placeholderColor}
           secureTextEntry={isPassword && !showPassword}
           onFocus={handleFocus}
           onBlur={handleBlur}
+          onChangeText={handleSmartChange}
+          autoCorrect={language === "en"}
+          spellCheck={language === "en"}
         />
         {isPassword && (
           <Pressable onPress={() => setShowPassword((v) => !v)}>
             <Ionicons
               name={showPassword ? "eye-off-outline" : "eye-outline"}
               size={18}
-              color={colors.textSecondary}
+              color={
+                authEmphasis
+                  ? isFocused
+                    ? Colors.primary
+                    : "#FFFFFF"
+                  : colors.textSecondary
+              }
             />
           </Pressable>
         )}
       </Animated.View>
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      {error || smartError ? <Text style={styles.errorText}>{error ?? smartError}</Text> : null}
+      {spellIssues.length > 0 ? (
+        <Text style={[styles.spellHint, { color: colors.textSecondary }]}>
+          {t("spellIssues")}: {spellIssues.join(", ")}. {t("spellSuggestions")}:{" "}
+          {suggestWord(spellIssues[0], language).join(", ")}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -97,6 +181,12 @@ export function AuthInput({ label, icon, error, isPassword, ...rest }: AuthInput
 const styles = StyleSheet.create({
   wrapper: { gap: 6 },
   label: { fontSize: 13, fontFamily: "Cairo_600SemiBold" },
+  labelAuth: { fontSize: 14 },
+  labelAuthOnImage: {
+    textShadowColor: "rgba(0,0,0,0.65)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
   inputContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -115,6 +205,10 @@ const styles = StyleSheet.create({
   errorText: {
     color: Colors.destructive,
     fontSize: 12,
+    fontFamily: "Cairo_400Regular",
+  },
+  spellHint: {
+    fontSize: 11,
     fontFamily: "Cairo_400Regular",
   },
 });

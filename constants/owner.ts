@@ -1,3 +1,5 @@
+import { formatIqd } from "@/lib/format-currency";
+
 export type OwnerBooking = {
   id: string;
   ownerId: string;
@@ -92,5 +94,5 @@ export function formatBookingTime(b: OwnerBooking): string {
 }
 
 export function formatPrice(price: number, duration: number): string {
-  return (price * duration).toLocaleString("ar-IQ") + " د.ع";
+  return formatIqd(price * duration);
 }

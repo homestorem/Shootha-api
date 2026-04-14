@@ -1,3 +1,6 @@
+import "react-native-get-random-values";
+import "@/i18n";
+
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Stack, router } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -12,178 +15,148 @@ import {
   Cairo_700Bold,
 } from "@expo-google-fonts/cairo";
 import { BookingsProvider } from "@/context/BookingsContext";
+import { RandomMatchProvider } from "@/context/RandomMatchContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
-import { LocationProvider } from "@/context/LocationContext";
-import { ThemeProvider } from "@/context/ThemeContext";
-import { LanguageProvider } from "@/context/LanguageContext";
+import FirebaseAuthRoot from "@/components/FirebaseAuthRoot";
+import { GuestPromptProvider } from "@/context/GuestPromptContext";
+import { LocationProvider, useLocation } from "@/context/LocationContext";
+import { registerPlayerPushToFirestore } from "@/lib/notifications";
+import { ThemeProvider, useTheme } from "@/context/ThemeContext";
+import { LanguageProvider, resolveCloudLanguageOrNull, useLang } from "@/context/LanguageContext";
+import { StoreCartProvider } from "@/context/StoreCartContext";
 import { StatusBar } from "expo-status-bar";
-import { View, Text, StyleSheet, Animated, Dimensions, Platform } from "react-native";
-import { Colors } from "@/constants/colors";
-import { Ionicons } from "@expo/vector-icons";
+import { Platform, Pressable, Text, View } from "react-native";
+import { AnimatedLogoSplash } from "@/components/AnimatedLogoSplash";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { reloadAppAsync } from "expo";
+import {
+  installGlobalErrorHandlers,
+  logStartupEnvironment,
+  validateStartupConfig,
+} from "@/lib/startupDiagnostics";
 
-SplashScreen.preventAutoHideAsync();
-
-const { width: W, height: H } = Dimensions.get("window");
-
-function SplashOverlay({ onFinish }: { onFinish: () => void }) {
-  const fadeIn = useRef(new Animated.Value(0)).current;
-  const fadeOut = useRef(new Animated.Value(1)).current;
-  const rotateAnim = useRef(new Animated.Value(0)).current;
-  const orbitAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.7)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        damping: 12,
-        stiffness: 120,
-        useNativeDriver: true,
-      }),
-      Animated.timing(fadeIn, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    const spinBall = Animated.loop(
-      Animated.timing(orbitAnim, {
-        toValue: 1,
-        duration: 1400,
-        useNativeDriver: true,
-      })
-    );
-    const spinInner = Animated.loop(
-      Animated.timing(rotateAnim, {
-        toValue: 1,
-        duration: 2000,
-        useNativeDriver: true,
-      })
-    );
-    spinBall.start();
-    spinInner.start();
-
-    const timer = setTimeout(() => {
-      Animated.timing(fadeOut, {
-        toValue: 0,
-        duration: 400,
-        useNativeDriver: true,
-      }).start(() => {
-        spinBall.stop();
-        spinInner.stop();
-        onFinish();
-      });
-    }, 3000);
-
-    return () => {
-      clearTimeout(timer);
-      spinBall.stop();
-      spinInner.stop();
-    };
-  }, []);
-
-  const orbitRadius = 72;
-  const orbitRotate = orbitAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", "360deg"],
-  });
-  const innerRotate = rotateAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", "360deg"],
-  });
-
-  return (
-    <Animated.View style={[styles.splashContainer, { opacity: fadeOut }]}>
-      <View style={styles.splashInner}>
-        <Animated.View
-          style={[
-            styles.logoWrap,
-            {
-              opacity: fadeIn,
-              transform: [{ scale: scaleAnim }],
-            },
-          ]}
-        >
-          <View style={styles.logoCircle}>
-            <Ionicons name="football" size={52} color={Colors.primary} />
-          </View>
-
-          <Animated.View
-            style={[
-              styles.orbitContainer,
-              { transform: [{ rotate: orbitRotate }] },
-            ]}
-          >
-            <View style={[styles.orbitBall, { marginLeft: orbitRadius }]}>
-              <Animated.View
-                style={{ transform: [{ rotate: innerRotate }] }}
-              >
-                <Ionicons name="football" size={18} color="#2ECC71" />
-              </Animated.View>
-            </View>
-          </Animated.View>
-        </Animated.View>
-
-        <Animated.View style={{ opacity: fadeIn, alignItems: "center", gap: 6 }}>
-          <Text style={styles.logoTitle}>Shoot'ha</Text>
-          <Text style={styles.logoSubtitle}>احجز ملعبك في ثوانٍ</Text>
-        </Animated.View>
-      </View>
-
-      <Animated.View style={[styles.splashFooter, { opacity: fadeIn }]}>
-        <Text style={styles.splashFooterText}>الموصل • العراق</Text>
-      </Animated.View>
-    </Animated.View>
-  );
-}
+SplashScreen.preventAutoHideAsync().catch((error) => {
+  console.error("[startup] SplashScreen.preventAutoHideAsync failed", error);
+});
 
 function AppNavigator() {
-  const { isLoading, user, isGuest } = useAuth();
-  const [showSplash, setShowSplash] = useState(true);
-  const [splashDone, setSplashDone] = useState(false);
+  const { isLoading, user } = useAuth();
+  const { setLanguageForUser } = useLang();
+  const { requestLocation } = useLocation();
   const hasRedirected = useRef(false);
+  const promptedForUserRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!splashDone || isLoading) return;
+    if (isLoading) return;
     if (hasRedirected.current) return;
+
     hasRedirected.current = true;
+
     if (user) {
-      if (user.role === "owner") {
-        router.replace("/owner");
-      } else {
-        router.replace("/(tabs)");
-      }
-    } else if (isGuest) {
       router.replace("/(tabs)");
     } else {
-      router.replace("/select-role");
+      router.replace("/auth/player/login");
     }
-  }, [splashDone, isLoading, user, isGuest]);
+  }, [isLoading, user]);
 
-  const handleSplashFinish = () => {
-    setShowSplash(false);
-    setSplashDone(true);
-  };
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    if (!user || user.role !== "player" || user.id === "guest") return;
+    if (promptedForUserRef.current === user.id) return;
+
+    promptedForUserRef.current = user.id;
+
+    (async () => {
+      try {
+        await registerPlayerPushToFirestore(user.id);
+        await requestLocation();
+      } catch (error) {
+        console.error("[startup] failed post-login init", error);
+      }
+    })();
+  }, [user, requestLocation]);
+
+  useEffect(() => {
+    if (!user || user.id === "guest" || user.role !== "player") return;
+    (async () => {
+      try {
+        const cloud = await resolveCloudLanguageOrNull(user.id);
+        if (cloud) {
+          await setLanguageForUser(cloud, user.id);
+        }
+      } catch (error) {
+        console.error("[startup] language sync failed", error);
+      }
+    })();
+  }, [user?.id, user?.role, setLanguageForUser]);
 
   return (
     <>
       <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="owner" options={{ headerShown: false }} />
-        <Stack.Screen name="select-role" options={{ headerShown: false, animation: "fade" }} />
-        <Stack.Screen name="auth/player/login" options={{ headerShown: false, animation: "slide_from_bottom" }} />
-        <Stack.Screen name="auth/player/register" options={{ headerShown: false, animation: "slide_from_right" }} />
-        <Stack.Screen name="auth/player/verify-otp" options={{ headerShown: false, animation: "slide_from_right" }} />
-        <Stack.Screen name="auth/owner/login" options={{ headerShown: false, animation: "slide_from_bottom" }} />
-        <Stack.Screen name="auth/owner/register" options={{ headerShown: false, animation: "slide_from_right" }} />
-        <Stack.Screen name="auth/owner/verify-otp" options={{ headerShown: false, animation: "slide_from_right" }} />
-        <Stack.Screen name="venue/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
-        <Stack.Screen name="booking/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
-        <Stack.Screen name="profile" options={{ headerShown: false }} />
-      </Stack>
-      {showSplash && <SplashOverlay onFinish={handleSplashFinish} />}
+  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+
+  <Stack.Screen name="auth" options={{ headerShown: false, animation: "slide_from_right" }} />
+
+  <Stack.Screen name="venue/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
+  <Stack.Screen name="booking/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
+  <Stack.Screen name="booking/pay-card" options={{ headerShown: false, animation: "slide_from_right" }} />
+  <Stack.Screen name="booking/pay-wallet" options={{ headerShown: false, animation: "slide_from_right" }} />
+  <Stack.Screen name="random-match-create" options={{ headerShown: false, animation: "slide_from_right" }} />
+  <Stack.Screen name="random-match-join" options={{ headerShown: false, animation: "slide_from_right" }} />
+  <Stack.Screen name="random-match/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
+  <Stack.Screen name="random-match/join-pay" options={{ headerShown: false, animation: "slide_from_right" }} />
+  <Stack.Screen name="profile" options={{ headerShown: false }} />
+  <Stack.Screen name="store/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
+</Stack>
     </>
+  );
+}
+
+function StartupFailureScreen({ error }: { error: string }) {
+  const handleRestart = async () => {
+    try {
+      await reloadAppAsync();
+    } catch (reloadError) {
+      console.error("[startup] failed to restart app", reloadError);
+    }
+  };
+
+  return (
+    <View style={{ flex: 1, justifyContent: "center", paddingHorizontal: 24, backgroundColor: "#0A0A0A" }}>
+      <Text style={{ color: "#FFFFFF", fontSize: 22, fontWeight: "700", textAlign: "center", marginBottom: 12 }}>
+        Startup failed
+      </Text>
+      <Text style={{ color: "rgba(255,255,255,0.8)", textAlign: "center", marginBottom: 24 }}>
+        {error}
+      </Text>
+      <Pressable
+        onPress={handleRestart}
+        style={{
+          alignSelf: "center",
+          backgroundColor: "#228B22",
+          paddingVertical: 12,
+          paddingHorizontal: 24,
+          borderRadius: 10,
+        }}
+      >
+        <Text style={{ color: "#FFFFFF", fontWeight: "600" }}>Restart app</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function ThemedStatusBar() {
+  const { isDark } = useTheme();
+  return <StatusBar style={isDark ? "light" : "dark"} />;
+}
+
+function AppShell() {
+  const { isRTL } = useLang();
+  return (
+    <GestureHandlerRootView style={{ flex: 1, direction: isRTL ? "rtl" : "ltr" }}>
+      <ThemedStatusBar />
+      <AppNavigator />
+    </GestureHandlerRootView>
   );
 }
 
@@ -193,102 +166,75 @@ export default function RootLayout() {
     Cairo_600SemiBold,
     Cairo_700Bold,
   });
+  const [splashIntroDone, setSplashIntroDone] = useState(Platform.OS === "web");
+  const [startupError, setStartupError] = useState<string | null>(null);
+
+  useEffect(() => {
+    installGlobalErrorHandlers();
+    logStartupEnvironment();
+
+    const configErrors = validateStartupConfig();
+    if (configErrors.length > 0) {
+      const message = configErrors.join(" | ");
+      console.error("[startup] preflight failed", message);
+      setStartupError(message);
+    }
+  }, []);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
+      void SplashScreen.hideAsync();
     }
   }, [fontsLoaded, fontError]);
 
   if (!fontsLoaded && !fontError) return null;
 
+  if (startupError) {
+    return (
+      <SafeAreaProvider>
+        <StartupFailureScreen error={startupError} />
+      </SafeAreaProvider>
+    );
+  }
+
   return (
-    <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider>
-          <LanguageProvider>
+    <SafeAreaProvider>
+      <ErrorBoundary
+        onError={(error, stackTrace) => {
+          console.error("[root-boundary] unhandled render error", {
+            message: error.message,
+            stack: error.stack,
+            componentStack: stackTrace,
+          });
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <QueryClientProvider client={queryClient}>
             <AuthProvider>
-              <LocationProvider>
-                <BookingsProvider>
-                  <GestureHandlerRootView style={{ flex: 1 }}>
-                    <StatusBar style="light" />
-                    <AppNavigator />
-                  </GestureHandlerRootView>
-                </BookingsProvider>
-              </LocationProvider>
+              <ThemeProvider>
+                <LanguageProvider>
+                  <FirebaseAuthRoot>
+                    <GuestPromptProvider>
+                      <LocationProvider>
+                        <StoreCartProvider>
+                          <BookingsProvider>
+                            <RandomMatchProvider>
+                              <AppShell />
+                            </RandomMatchProvider>
+                          </BookingsProvider>
+                        </StoreCartProvider>
+                      </LocationProvider>
+                    </GuestPromptProvider>
+                  </FirebaseAuthRoot>
+                </LanguageProvider>
+              </ThemeProvider>
             </AuthProvider>
-          </LanguageProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
-    </ErrorBoundary>
+          </QueryClientProvider>
+          {!splashIntroDone ? (
+            <AnimatedLogoSplash onComplete={() => setSplashIntroDone(true)} />
+          ) : null}
+        </View>
+      </ErrorBoundary>
+    </SafeAreaProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  splashContainer: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: Colors.background,
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingTop: Platform.OS === "web" ? 120 : 160,
-    paddingBottom: Platform.OS === "web" ? 40 : 60,
-    zIndex: 999,
-  },
-  splashInner: {
-    alignItems: "center",
-    gap: 32,
-  },
-  logoWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-    width: 180,
-    height: 180,
-  },
-  logoCircle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: "rgba(46,204,113,0.1)",
-    borderWidth: 2,
-    borderColor: "rgba(46,204,113,0.3)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  orbitContainer: {
-    position: "absolute",
-    width: 180,
-    height: 180,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  orbitBall: {
-    position: "absolute",
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: "rgba(46,204,113,0.1)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(46,204,113,0.4)",
-  },
-  logoTitle: {
-    color: Colors.text,
-    fontSize: 36,
-    fontFamily: "Cairo_700Bold",
-    letterSpacing: -0.5,
-  },
-  logoSubtitle: {
-    color: Colors.textSecondary,
-    fontSize: 15,
-    fontFamily: "Cairo_400Regular",
-  },
-  splashFooter: {
-    alignItems: "center",
-  },
-  splashFooterText: {
-    color: Colors.textTertiary,
-    fontSize: 12,
-    fontFamily: "Cairo_400Regular",
-  },
-});

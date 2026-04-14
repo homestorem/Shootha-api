@@ -1,5 +1,9 @@
 const { getDefaultConfig } = require("expo/metro-config");
 
-const config = getDefaultConfig(__dirname);
+const projectRoot = __dirname;
+const config = getDefaultConfig(projectRoot);
+
+config.projectRoot = projectRoot;
+config.watchFolders = [projectRoot];
 
 module.exports = config;

@@ -1,6 +1,5 @@
 import { Platform } from "react-native";
-import { getApiUrl } from "@/lib/query-client";
-import { fetch } from "expo/fetch";
+import { updatePlayerExpoPushToken } from "@/lib/firestoreUserProfile";
 
 async function getExpoPushToken(): Promise<string | null> {
   if (Platform.OS === "web") return null;
@@ -21,23 +20,36 @@ async function getExpoPushToken(): Promise<string | null> {
   }
 }
 
-export async function registerPushToken(authToken: string): Promise<void> {
+/** طلب إذن الإشعارات وإرجاع رمز Expo Push (أو null) */
+export async function requestNotificationPermissionAndGetToken(): Promise<string | null> {
+  return getExpoPushToken();
+}
+
+/** حفظ رمز الإشعارات في Firestore للاعب */
+export async function registerPlayerPushToFirestore(uid: string): Promise<void> {
+  if (!uid?.trim() || uid === "guest") return;
+  const token = await requestNotificationPermissionAndGetToken();
+  if (!token) return;
+  try {
+    await updatePlayerExpoPushToken(uid, token);
+  } catch (e) {
+    console.warn("[PUSH] Firestore save failed:", e);
+  }
+}
+
+/** Legacy Express token registration removed — يحاول حفظ الرمز في Firestore عند توفر uid */
+export async function registerPushToken(_authToken: string, firebaseUid?: string): Promise<void> {
   if (Platform.OS === "web") return;
   try {
     const expoPushToken = await getExpoPushToken();
     if (!expoPushToken) return;
-    const url = new URL("/api/notifications/register-token", getApiUrl()).toString();
-    await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${authToken}`,
-      },
-      body: JSON.stringify({ expoPublicToken: expoPushToken }),
-    });
-    console.log("[PUSH] Token registered:", expoPushToken.slice(0, 30) + "...");
+    if (firebaseUid?.trim() && firebaseUid !== "guest") {
+      await updatePlayerExpoPushToken(firebaseUid, expoPushToken);
+    } else if (__DEV__) {
+      console.log("[PUSH] No Firebase uid — token not saved to Firestore.");
+    }
   } catch (e) {
-    console.warn("[PUSH] Token registration failed:", e);
+    console.warn("[PUSH] Token registration skipped:", e);
   }
 }
 
@@ -54,5 +66,7 @@ export async function setupNotificationHandler(): Promise<void> {
         shouldShowList: true,
       }),
     });
-  } catch {}
+  } catch {
+    /* optional module */
+  }
 }

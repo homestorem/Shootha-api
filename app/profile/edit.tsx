@@ -25,7 +25,7 @@ export default function EditProfileScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const { t } = useLang();
-  const { user, updateProfile, sendPhoneChangeOtp, updatePhone } = useAuth();
+  const { user, updateProfile, sendEmailChangeOtp, updateEmail } = useAuth();
 
   const [name, setName] = useState(user?.name ?? "");
   const [dateOfBirth, setDateOfBirth] = useState(user?.dateOfBirth ?? "");
@@ -34,19 +34,18 @@ export default function EditProfileScreen() {
   const [savedMsg, setSavedMsg] = useState("");
   const [nameError, setNameError] = useState("");
 
-  const [newPhone, setNewPhone] = useState(user?.phone ?? "");
+  const [newEmail, setNewEmail] = useState(user?.email ?? "");
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState("");
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [otpError, setOtpError] = useState("");
-  const [phoneSuccess, setPhoneSuccess] = useState("");
-  const [devOtpHint, setDevOtpHint] = useState("");
+  const [emailSuccess, setEmailSuccess] = useState("");
 
-  const phoneChanged = newPhone.trim() !== (user?.phone ?? "");
+  const emailChanged = newEmail.trim() !== (user?.email ?? "");
 
-  const handleSendPhoneOtp = async () => {
-    if (newPhone.replace(/\D/g, "").length < 10) {
+  const handleSendEmailOtp = async () => {
+    if (!newEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail.trim())) {
       setOtpError(t("fieldRequired"));
       return;
     }
@@ -54,18 +53,17 @@ export default function EditProfileScreen() {
     setIsSendingOtp(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      const res = await sendPhoneChangeOtp(newPhone.trim());
+      await sendEmailChangeOtp(newEmail.trim());
       setOtpSent(true);
       setOtp("");
-      if (res.devOtp) setDevOtpHint(res.devOtp);
-    } catch (e: any) {
-      setOtpError(e?.message ?? "تعذر إرسال رمز التحقق");
+    } catch (e: unknown) {
+      setOtpError(e instanceof Error ? e.message : "تعذر إرسال رمز التحقق");
     } finally {
       setIsSendingOtp(false);
     }
   };
 
-  const handleVerifyPhone = async () => {
+  const handleVerifyEmail = async () => {
     if (otp.trim().length !== 6) {
       setOtpError("أدخل رمز من 6 أرقام");
       return;
@@ -74,14 +72,13 @@ export default function EditProfileScreen() {
     setIsVerifyingOtp(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      await updatePhone(newPhone.trim(), otp.trim());
+      await updateEmail(newEmail.trim(), otp.trim());
       setOtpSent(false);
       setOtp("");
-      setDevOtpHint("");
-      setPhoneSuccess(t("phoneUpdated"));
-      setTimeout(() => setPhoneSuccess(""), 4000);
-    } catch (e: any) {
-      setOtpError(e?.message ?? "رمز التحقق غير صحيح");
+      setEmailSuccess("تم تحديث البريد");
+      setTimeout(() => setEmailSuccess(""), 4000);
+    } catch (e: unknown) {
+      setOtpError(e instanceof Error ? e.message : "رمز التحقق غير صحيح");
     } finally {
       setIsVerifyingOtp(false);
     }
@@ -175,7 +172,7 @@ export default function EditProfileScreen() {
             {profileImage ? (
               <Image source={{ uri: profileImage }} style={styles.avatar} />
             ) : (
-              <View style={[styles.avatarPlaceholder, { backgroundColor: "rgba(46,204,113,0.15)" }]}>
+              <View style={[styles.avatarPlaceholder, { backgroundColor: "rgba(15,157,88,0.15)" }]}>
                 <Text style={styles.avatarInitial}>{name.charAt(0) || "؟"}</Text>
               </View>
             )}
@@ -226,7 +223,7 @@ export default function EditProfileScreen() {
           </View>
 
           <View style={styles.field}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>{t("phone")}</Text>
+            <Text style={[styles.label, { color: colors.textSecondary }]}>البريد الإلكتروني</Text>
             <View style={styles.phoneRow}>
               <TextInput
                 style={[
@@ -237,27 +234,28 @@ export default function EditProfileScreen() {
                     borderColor: otpError && !otpSent ? Colors.destructive : colors.border,
                   },
                 ]}
-                value={newPhone}
+                value={newEmail}
                 onChangeText={(v) => {
-                  setNewPhone(v);
+                  setNewEmail(v);
                   setOtpSent(false);
                   setOtp("");
                   setOtpError("");
-                  setPhoneSuccess("");
+                  setEmailSuccess("");
                 }}
-                placeholder={t("phone")}
+                placeholder="you@example.com"
                 placeholderTextColor={colors.textTertiary}
-                keyboardType="phone-pad"
+                keyboardType="email-address"
+                autoCapitalize="none"
                 textAlign="right"
                 editable={!otpSent}
               />
-              {phoneChanged && !otpSent && (
+              {emailChanged && !otpSent && (
                 <Pressable
                   style={[
                     styles.otpSendBtn,
                     isSendingOtp && { opacity: 0.5 },
                   ]}
-                  onPress={handleSendPhoneOtp}
+                  onPress={handleSendEmailOtp}
                   disabled={isSendingOtp}
                 >
                   {isSendingOtp ? (
@@ -271,11 +269,6 @@ export default function EditProfileScreen() {
 
             {otpSent && (
               <View style={styles.otpSection}>
-                {!!devOtpHint && (
-                  <View style={styles.devHint}>
-                    <Text style={styles.devHintText}>🔐 Dev OTP: {devOtpHint}</Text>
-                  </View>
-                )}
                 <TextInput
                   style={[
                     styles.otpInput,
@@ -295,7 +288,7 @@ export default function EditProfileScreen() {
                 />
                 <Pressable
                   style={[styles.verifyBtn, isVerifyingOtp && { opacity: 0.5 }]}
-                  onPress={handleVerifyPhone}
+                  onPress={handleVerifyEmail}
                   disabled={isVerifyingOtp}
                 >
                   {isVerifyingOtp ? (
@@ -315,8 +308,8 @@ export default function EditProfileScreen() {
             {!!otpError && (
               <Text style={[styles.errorText, { color: Colors.destructive }]}>{otpError}</Text>
             )}
-            {!!phoneSuccess && (
-              <Text style={[styles.successText, { color: Colors.primary }]}>{phoneSuccess}</Text>
+            {!!emailSuccess && (
+              <Text style={[styles.successText, { color: Colors.primary }]}>{emailSuccess}</Text>
             )}
           </View>
         </View>
@@ -345,13 +338,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "rgba(46,204,113,0.12)",
+    backgroundColor: "rgba(15,157,88,0.12)",
     borderRadius: 12,
     padding: 12,
     marginTop: 20,
     marginBottom: 4,
     borderWidth: 1,
-    borderColor: "rgba(46,204,113,0.3)",
+    borderColor: "rgba(15,157,88,0.3)",
   },
   successText: { color: Colors.primary, fontSize: 14, fontFamily: "Cairo_600SemiBold" },
   avatarSection: { alignItems: "center", paddingVertical: 32, gap: 12 },
@@ -416,14 +409,6 @@ const styles = StyleSheet.create({
   },
   otpSendBtnText: { color: "#000", fontSize: 12, fontFamily: "Cairo_700Bold" },
   otpSection: { gap: 10, marginTop: 4 },
-  devHint: {
-    backgroundColor: "rgba(46,204,113,0.1)",
-    borderRadius: 8,
-    padding: 8,
-    borderWidth: 1,
-    borderColor: "rgba(46,204,113,0.3)",
-  },
-  devHintText: { color: Colors.primary, fontSize: 12, fontFamily: "Cairo_600SemiBold", textAlign: "center" },
   otpInput: {
     height: 52,
     borderWidth: 1,

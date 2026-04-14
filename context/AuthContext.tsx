@@ -4,33 +4,57 @@ import React, {
   useState,
   useEffect,
   useMemo,
+  useCallback,
   ReactNode,
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
-import { fetch } from "expo/fetch";
+import { signOut, verifyBeforeUpdateEmail, reload } from "firebase/auth";
 import { registerPushToken, setupNotificationHandler } from "@/lib/notifications";
+import { GUEST_FULL_ACCESS } from "@/constants/guestAccess";
+import { isValidEmailFormat } from "@/lib/validation";
+import { getFirebaseAuth } from "@/lib/firebase";
+import {
+  sendPhoneOtp,
+  verifyPhoneOtp,
+  buildAuthUserFromPhone,
+  mergeFirestorePlayerProfile,
+  isPhoneAlreadyRegistered,
+  ensureFirestoreUserByPhone,
+  type FirestoreUserExtras,
+} from "@/lib/firebasePhoneAuth";
+import { normalizeIqPhoneToE164, isValidIqMobileE164 } from "@/lib/phoneE164";
+import { ensureFirebaseAuthForSupportChat } from "@/lib/firebaseSupportAuth";
+import { uploadImageAsync, isRemoteImageUrl } from "@/lib/cloudinary-upload";
+import { router } from "expo-router";
 
-export type UserRole = "player" | "owner" | "guest" | "supervisor";
+export type UserRole = "player" | "guest" | "supervisor";
 
 export type AuthUser = {
   id: string;
+  /** معرّف التطبيق القصير (ثابت) — يُخزَّن في Firestore ويُستخدم للحجوزات والربط */
+  playerId: string;
   name: string;
+  email: string;
   phone: string;
   role: UserRole;
   dateOfBirth?: string | null;
   profileImage?: string | null;
   gender?: string | null;
+  position?: string | null;
+  /** رمز دعوة صديق — يُولَّد مع الحساب ويُعرض في الملف الشخصي */
+  inviteCode?: string | null;
 };
 
 export type PendingPlayerData = {
   name: string;
   phone: string;
+  email?: string;
   dateOfBirth?: string;
   profileImage?: string;
   userLat?: string;
   userLon?: string;
   gender?: string;
+  position?: string;
 };
 
 export type PendingOwnerData = {
@@ -55,15 +79,9 @@ interface AuthContextValue {
   isGuest: boolean;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (phone: string, otp: string) => Promise<void>;
-  register: (
-    phone: string,
-    name: string,
-    role: UserRole,
-    otp: string,
-    extraData?: Record<string, string | string[] | boolean | undefined>
-  ) => Promise<void>;
-  sendOtp: (phone: string) => Promise<{ devOtp?: string }>;
+  requestLoginPhoneOtp: (rawPhone: string) => Promise<void>;
+  verifyLoginPhoneOtp: (code: string) => Promise<void>;
+  signInPlayerSession: (user: AuthUser) => Promise<void>;
   continueAsGuest: () => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (data: {
@@ -72,8 +90,10 @@ interface AuthContextValue {
     profileImage?: string;
   }) => Promise<void>;
   deleteAccount: () => Promise<void>;
-  sendPhoneChangeOtp: (newPhone: string) => Promise<{ devOtp?: string }>;
-  updatePhone: (newPhone: string, otp: string) => Promise<void>;
+  sendEmailChangeOtp: (newEmail: string) => Promise<Record<string, never>>;
+  updateEmail: (newEmail: string, otp: string) => Promise<void>;
+  /** مزامنة inviteCode من Firestore (للحسابات القديمة أو بعد التسجيل) */
+  refreshPlayerFromFirestore: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -81,7 +101,23 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_TOKEN_KEY = "shootha_auth_token";
 const AUTH_USER_KEY = "shootha_auth_user";
 const AUTH_GUEST_KEY = "shootha_auth_guest";
+const ONE_TIME_CLEAR_LEGACY_GUEST_KEY = "shootha_migrate_clear_guest_v1";
 export const PENDING_REG_KEY = "shootha_pending_reg";
+const PENDING_OTP_PHONE_KEY = "shootha_pending_otp_phone";
+/** جلسة اللاعب بعد تسجيل الدخول — يُقرأ عند إقلاع التطبيق */
+const USER_SESSION_KEY = "user_session";
+
+const GUEST_USER: AuthUser = {
+  id: "guest",
+  playerId: "",
+  name: "ضيف",
+  email: "",
+  phone: "",
+  role: "guest",
+};
+
+const LEGACY_MSG =
+  "سيتم حفظ التعديلات على السحابة بعد ربط الخادم.";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -89,138 +125,303 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isGuest, setIsGuest] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    setupNotificationHandler().catch(() => {});
-    initAuth();
+  const persistPlayer = useCallback(async (u: AuthUser) => {
+    const normalized: AuthUser = {
+      ...u,
+      playerId: u.playerId ?? "",
+      email: u.email ?? "",
+      phone: u.phone ?? "",
+      inviteCode: u.inviteCode?.trim() || null,
+    };
+    await AsyncStorage.multiSet([
+      [AUTH_USER_KEY, JSON.stringify(normalized)],
+      [USER_SESSION_KEY, JSON.stringify(normalized)],
+    ]);
+    await AsyncStorage.removeItem(AUTH_GUEST_KEY);
+    setUser(normalized);
+    setToken(null);
+    setIsGuest(false);
   }, []);
 
-  const initAuth = async () => {
+  const initAuth = useCallback(async () => {
     try {
-      const [storedToken, storedUser, storedGuest] = await Promise.all([
-        AsyncStorage.getItem(AUTH_TOKEN_KEY),
-        AsyncStorage.getItem(AUTH_USER_KEY),
-        AsyncStorage.getItem(AUTH_GUEST_KEY),
-      ]);
-      if (storedToken && storedUser) {
+      const migrated = await AsyncStorage.getItem(ONE_TIME_CLEAR_LEGACY_GUEST_KEY);
+      if (!migrated) {
+        await AsyncStorage.setItem(ONE_TIME_CLEAR_LEGACY_GUEST_KEY, "1");
         try {
-          const url = new URL("/api/auth/me", getApiUrl()).toString();
-          const verifyRes = await fetch(url, {
-            method: "GET",
-            headers: { Authorization: `Bearer ${storedToken}` },
-          });
-          if (verifyRes.ok) {
-            setToken(storedToken);
-            setUser(JSON.parse(storedUser));
-            registerPushToken(storedToken).catch(() => {});
-          } else {
-            await Promise.all([
-              AsyncStorage.removeItem(AUTH_TOKEN_KEY),
-              AsyncStorage.removeItem(AUTH_USER_KEY),
-            ]);
+          const rawUser = await AsyncStorage.getItem(AUTH_USER_KEY);
+          if (rawUser) {
+            const u = JSON.parse(rawUser) as AuthUser;
+            if (u.role === "guest") {
+              await AsyncStorage.multiRemove([
+                AUTH_USER_KEY,
+                AUTH_GUEST_KEY,
+                AUTH_TOKEN_KEY,
+                USER_SESSION_KEY,
+              ]);
+            }
+          } else if ((await AsyncStorage.getItem(AUTH_GUEST_KEY)) === "true") {
+            await AsyncStorage.removeItem(AUTH_GUEST_KEY);
           }
         } catch {
+          await AsyncStorage.multiRemove([AUTH_USER_KEY, AUTH_GUEST_KEY]);
+        }
+      }
+
+      const [storedToken, storedUser, storedGuest, userSessionRaw] =
+        await Promise.all([
+          AsyncStorage.getItem(AUTH_TOKEN_KEY),
+          AsyncStorage.getItem(AUTH_USER_KEY),
+          AsyncStorage.getItem(AUTH_GUEST_KEY),
+          AsyncStorage.getItem(USER_SESSION_KEY),
+        ]);
+
+      if (userSessionRaw) {
+        try {
+          const su = JSON.parse(userSessionRaw) as AuthUser;
+          if (
+            su &&
+            su.role === "player" &&
+            su.id &&
+            su.id !== "guest"
+          ) {
+            const normalized: AuthUser = {
+              ...su,
+              playerId: su.playerId ?? "",
+              email: su.email ?? "",
+              phone: su.phone ?? "",
+              inviteCode: su.inviteCode?.trim() || null,
+            };
+            setUser(normalized);
+            setIsGuest(false);
+            setToken(storedToken);
+            if (storedToken) {
+              registerPushToken(storedToken, normalized.id).catch(() => {});
+            }
+            await AsyncStorage.setItem(
+              AUTH_USER_KEY,
+              JSON.stringify(normalized),
+            );
+            return;
+          }
+          await AsyncStorage.removeItem(USER_SESSION_KEY);
+        } catch {
+          await AsyncStorage.removeItem(USER_SESSION_KEY);
+        }
+      }
+
+      if (storedToken && storedUser) {
+        try {
           setToken(storedToken);
-          setUser(JSON.parse(storedUser));
+          const parsed = JSON.parse(storedUser) as AuthUser;
+          const normalizedTok: AuthUser = {
+            ...parsed,
+            playerId: parsed.playerId ?? "",
+            email: parsed.email ?? "",
+            phone: parsed.phone ?? "",
+            inviteCode: parsed.inviteCode?.trim() || null,
+          };
+          setUser(normalizedTok);
+          if (parsed.role === "player" && parsed.id !== "guest") {
+            await AsyncStorage.setItem(
+              USER_SESSION_KEY,
+              JSON.stringify(normalizedTok),
+            );
+          }
+          registerPushToken(storedToken, parsed.id).catch(() => {});
+        } catch {
+          await Promise.all([
+            AsyncStorage.removeItem(AUTH_TOKEN_KEY),
+            AsyncStorage.removeItem(AUTH_USER_KEY),
+            AsyncStorage.removeItem(USER_SESSION_KEY),
+          ]);
+          if (GUEST_FULL_ACCESS) {
+            await AsyncStorage.multiSet([
+              [AUTH_GUEST_KEY, "true"],
+              [AUTH_USER_KEY, JSON.stringify(GUEST_USER)],
+            ]);
+            setToken(null);
+            setUser(GUEST_USER);
+            setIsGuest(true);
+          }
+        }
+      } else if (storedUser) {
+        try {
+          const u = JSON.parse(storedUser) as AuthUser;
+          if (u.role === "guest") {
+            setUser({
+              ...u,
+              playerId: u.playerId ?? "",
+              email: u.email ?? "",
+              phone: u.phone ?? "",
+            });
+            setIsGuest(true);
+            setToken(null);
+          } else {
+            const normalizedU: AuthUser = {
+              ...u,
+              playerId: u.playerId ?? "",
+              email: u.email ?? "",
+              phone: u.phone ?? "",
+              inviteCode: u.inviteCode?.trim() || null,
+            };
+            setUser(normalizedU);
+            setToken(storedToken);
+            setIsGuest(false);
+            if (u.role === "player" && u.id !== "guest") {
+              await AsyncStorage.setItem(
+                USER_SESSION_KEY,
+                JSON.stringify(normalizedU),
+              );
+            }
+          }
+        } catch {
+          await AsyncStorage.removeItem(AUTH_USER_KEY);
         }
       } else if (storedGuest === "true") {
+        try {
+          const u = storedUser
+            ? (JSON.parse(storedUser) as AuthUser)
+            : GUEST_USER;
+          if (u.role === "guest") {
+            setUser({
+              ...u,
+              playerId: u.playerId ?? "",
+              email: u.email ?? "",
+              phone: u.phone ?? "",
+            });
+            setIsGuest(true);
+            setToken(null);
+          } else {
+            await AsyncStorage.removeItem(AUTH_GUEST_KEY);
+          }
+        } catch {
+          await AsyncStorage.removeItem(AUTH_GUEST_KEY);
+        }
+      } else if (GUEST_FULL_ACCESS) {
+        await AsyncStorage.removeItem(USER_SESSION_KEY);
+        await AsyncStorage.multiSet([
+          [AUTH_GUEST_KEY, "true"],
+          [AUTH_USER_KEY, JSON.stringify(GUEST_USER)],
+        ]);
+        setToken(null);
+        setUser(GUEST_USER);
         setIsGuest(true);
       }
     } catch (e) {
       console.error("Auth init error:", e);
-    } finally {
+    }
+  }, []);
+
+  useEffect(() => {
+    setupNotificationHandler().catch(() => {});
+    (async () => {
+      await initAuth();
       setIsLoading(false);
+    })();
+  }, [initAuth]);
+
+  useEffect(() => {
+    if (isLoading || !user || isGuest || user.role !== "player") return;
+    const phone = normalizeIqPhoneToE164(user.phone || user.id || "");
+    if (!isValidIqMobileE164(phone)) return;
+    void ensureFirebaseAuthForSupportChat(phone).catch(() => {});
+  }, [isLoading, user?.id, user?.phone, user?.role, isGuest]);
+
+  const signInPlayerSession = useCallback(
+    async (player: AuthUser) => {
+      await persistPlayer(player);
+      const phone = normalizeIqPhoneToE164(player.phone || player.id || "");
+      if (isValidIqMobileE164(phone)) {
+        void ensureFirebaseAuthForSupportChat(phone).catch(() => {});
+      }
+    },
+    [persistPlayer],
+  );
+
+  const refreshPlayerFromFirestore = useCallback(async () => {
+    if (!user || user.role !== "player" || user.id === "guest" || !user.phone?.trim()) return;
+    const phone = normalizeIqPhoneToE164(user.phone);
+    if (!isValidIqMobileE164(phone)) return;
+    try {
+      await ensureFirestoreUserByPhone(phone, {});
+      const fresh = await buildAuthUserFromPhone(phone);
+      await persistPlayer(fresh);
+    } catch (e) {
+      console.warn("[auth] refreshPlayerFromFirestore", e);
     }
-  };
+  }, [user, persistPlayer]);
 
-  const authFetch = async (
-    method: string,
-    route: string,
-    data?: unknown
-  ): Promise<Response> => {
-    const url = new URL(route, getApiUrl()).toString();
-    const currentToken = token;
-    const res = await fetch(url, {
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
-      },
-      body: data ? JSON.stringify(data) : undefined,
-      credentials: "include",
-    });
-    if (!res.ok) {
-      let msg = res.statusText;
-      try {
-        const body = await res.json();
-        msg = body.message || msg;
-      } catch {}
-      throw new Error(msg);
+  const requestLoginPhoneOtp = useCallback(async (rawPhone: string) => {
+    const e164 = normalizeIqPhoneToE164(rawPhone);
+    if (!isValidIqMobileE164(e164)) {
+      throw new Error("رقم الجوال غير صالح (مثال: 07XXXXXXXXX)");
     }
-    return res;
-  };
+    await AsyncStorage.setItem(PENDING_OTP_PHONE_KEY, e164);
+    await sendPhoneOtp(e164);
+  }, []);
 
-  const sendOtp = async (phone: string): Promise<{ devOtp?: string }> => {
-    const res = await apiRequest("POST", "/api/auth/send-otp", { phone });
-    return await res.json();
-  };
-
-  const login = async (phone: string, otp: string): Promise<void> => {
-    const res = await apiRequest("POST", "/api/auth/login", { phone, otp });
-    const data: { token: string; user: AuthUser } = await res.json();
-    await Promise.all([
-      AsyncStorage.setItem(AUTH_TOKEN_KEY, data.token),
-      AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user)),
-      AsyncStorage.removeItem(AUTH_GUEST_KEY),
-    ]);
-    setToken(data.token);
-    setUser(data.user);
-    setIsGuest(false);
-    registerPushToken(data.token).catch(() => {});
-  };
-
-  const register = async (
-    phone: string,
-    name: string,
-    role: UserRole,
-    otp: string,
-    extraData?: Record<string, string | string[] | boolean | undefined>
-  ): Promise<void> => {
-    const payload: Record<string, string | string[] | boolean | undefined> = {
-      phone,
-      name,
-      role,
-      otp,
-      ...extraData,
-    };
-    const res = await apiRequest("POST", "/api/auth/register", payload);
-    const data: { token: string; user: AuthUser } = await res.json();
-    await Promise.all([
-      AsyncStorage.setItem(AUTH_TOKEN_KEY, data.token),
-      AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user)),
-      AsyncStorage.removeItem(AUTH_GUEST_KEY),
-    ]);
-    setToken(data.token);
-    setUser(data.user);
-    setIsGuest(false);
-    registerPushToken(data.token).catch(() => {});
-  };
+  const verifyLoginPhoneOtp = useCallback(
+    async (code: string) => {
+      const phone = (await AsyncStorage.getItem(PENDING_OTP_PHONE_KEY))?.trim() ?? "";
+      if (!phone) {
+        throw new Error("انتهت الجلسة — اطلب رمزاً جديداً من شاشة تسجيل الدخول.");
+      }
+      await verifyPhoneOtp(phone, code);
+      if (!(await isPhoneAlreadyRegistered(phone))) {
+        await AsyncStorage.removeItem(PENDING_OTP_PHONE_KEY);
+        throw new Error("الرقم غير مسجّل. يرجى إنشاء حساب جديد أولاً.");
+      }
+      const authUser = await buildAuthUserFromPhone(phone);
+      await AsyncStorage.removeItem(PENDING_OTP_PHONE_KEY);
+      await signInPlayerSession({
+        ...authUser,
+        playerId: authUser.playerId ?? "",
+        role: "player",
+      });
+    },
+    [signInPlayerSession],
+  );
 
   const continueAsGuest = async (): Promise<void> => {
-    await AsyncStorage.setItem(AUTH_GUEST_KEY, "true");
-    setIsGuest(true);
-    setUser(null);
+    await AsyncStorage.removeItem(USER_SESSION_KEY);
+    await AsyncStorage.multiSet([
+      [AUTH_GUEST_KEY, "true"],
+      [AUTH_USER_KEY, JSON.stringify(GUEST_USER)],
+    ]);
+    await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
     setToken(null);
+    setUser(GUEST_USER);
+    setIsGuest(true);
   };
 
   const logout = async (): Promise<void> => {
+    try {
+      await signOut(getFirebaseAuth());
+    } catch {
+      /* */
+    }
     await Promise.all([
       AsyncStorage.removeItem(AUTH_TOKEN_KEY),
       AsyncStorage.removeItem(AUTH_USER_KEY),
       AsyncStorage.removeItem(AUTH_GUEST_KEY),
+      AsyncStorage.removeItem(PENDING_OTP_PHONE_KEY),
+      AsyncStorage.removeItem(USER_SESSION_KEY),
     ]);
     setToken(null);
-    setUser(null);
-    setIsGuest(false);
+    if (GUEST_FULL_ACCESS) {
+      await AsyncStorage.multiSet([
+        [AUTH_GUEST_KEY, "true"],
+        [AUTH_USER_KEY, JSON.stringify(GUEST_USER)],
+      ]);
+      setUser(GUEST_USER);
+      setIsGuest(true);
+      router.replace("/(tabs)");
+    } else {
+      setUser(null);
+      setIsGuest(false);
+      router.replace("/auth/player/login");
+    }
   };
 
   const updateProfile = async (data: {
@@ -228,40 +429,87 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     dateOfBirth?: string;
     profileImage?: string;
   }): Promise<void> => {
-    const res = await authFetch("PATCH", "/api/user/profile", data);
-    const body: { user: AuthUser } = await res.json();
-    const updatedUser = { ...user!, ...body.user };
-    setUser(updatedUser);
-    await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedUser));
+    if (!user || user.role === "guest") {
+      throw new Error("يجب تسجيل الدخول");
+    }
+    let profileImage = data.profileImage ?? user.profileImage ?? null;
+    if (typeof profileImage === "string" && profileImage.trim() !== "") {
+      const trimmed = profileImage.trim();
+      if (!isRemoteImageUrl(trimmed)) {
+        profileImage = await uploadImageAsync(trimmed);
+      } else {
+        profileImage = trimmed;
+      }
+    } else {
+      profileImage = null;
+    }
+
+    const nextName = (data.name ?? user.name ?? "").trim() || user.name;
+    const nextDob = data.dateOfBirth ?? user.dateOfBirth ?? null;
+
+    await mergeFirestorePlayerProfile(user.id, {
+      name: nextName,
+      email: user.email ?? "",
+      phone: user.phone ?? "",
+      dateOfBirth: nextDob,
+      profileImage,
+      gender: user.gender ?? null,
+      position: user.position ?? null,
+    });
+
+    const next: AuthUser = {
+      ...user,
+      name: nextName,
+      dateOfBirth: nextDob,
+      profileImage,
+    };
+    await AsyncStorage.multiSet([
+      [AUTH_USER_KEY, JSON.stringify(next)],
+      [USER_SESSION_KEY, JSON.stringify(next)],
+    ]);
+    setUser(next);
   };
 
   const deleteAccount = async (): Promise<void> => {
-    await authFetch("DELETE", "/api/user/account");
+    try {
+      await signOut(getFirebaseAuth());
+    } catch {
+      /* */
+    }
     await logout();
   };
 
-  const sendPhoneChangeOtp = async (newPhone: string): Promise<{ devOtp?: string }> => {
-    const res = await authFetch("POST", "/api/user/phone/send-otp", { newPhone });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.message ?? "تعذر إرسال رمز التحقق");
+  const sendEmailChangeOtp = async (newEmail: string): Promise<Record<string, never>> => {
+    const e = newEmail.trim().toLowerCase();
+    if (!isValidEmailFormat(e)) {
+      throw new Error("البريد غير صالح");
     }
-    return res.json();
+    const auth = getFirebaseAuth();
+    const u = auth.currentUser;
+    if (!u) throw new Error("يجب تسجيل الدخول");
+    await verifyBeforeUpdateEmail(u, e);
+    return {};
   };
 
-  const updatePhone = async (newPhone: string, otp: string): Promise<void> => {
-    const res = await authFetch("PATCH", "/api/user/phone", { newPhone, otp });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.message ?? "تعذر تحديث رقم الهاتف");
+  const updateEmail = async (newEmail: string, _otp: string): Promise<void> => {
+    const auth = getFirebaseAuth();
+    if (!auth.currentUser) throw new Error("يجب تسجيل الدخول");
+    await reload(auth.currentUser);
+    const verified = auth.currentUser.email?.trim().toLowerCase();
+    const want = newEmail.trim().toLowerCase();
+    if (verified !== want) {
+      throw new Error("أكمل التحقق من الرابط المرسل إلى بريدك الجديد");
     }
-    const body: { user: AuthUser } = await res.json();
-    const updatedUser = { ...user!, ...body.user };
-    setUser(updatedUser);
-    await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(updatedUser));
+    if (!user || user.role === "guest") return;
+    const next: AuthUser = { ...user, playerId: user.playerId ?? "", email: want };
+    await AsyncStorage.multiSet([
+      [AUTH_USER_KEY, JSON.stringify(next)],
+      [USER_SESSION_KEY, JSON.stringify(next)],
+    ]);
+    setUser(next);
   };
 
-  const isAuthenticated = !!user && !isGuest;
+  const isAuthenticated = !!user && (!isGuest || GUEST_FULL_ACCESS);
 
   const value = useMemo(
     () => ({
@@ -270,20 +518,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isGuest,
       isLoading,
       isAuthenticated,
-      login,
-      register,
-      sendOtp,
+      requestLoginPhoneOtp,
+      verifyLoginPhoneOtp,
+      signInPlayerSession,
       continueAsGuest,
       logout,
       updateProfile,
       deleteAccount,
-      sendPhoneChangeOtp,
-      updatePhone,
-    }),
-    [user, token, isGuest, isLoading]
+      sendEmailChangeOtp,
+      updateEmail,
+      refreshPlayerFromFirestore,
+    } as AuthContextValue),
+    [
+      user,
+      token,
+      isGuest,
+      isLoading,
+      isAuthenticated,
+      requestLoginPhoneOtp,
+      verifyLoginPhoneOtp,
+      signInPlayerSession,
+      logout,
+      updateProfile,
+      deleteAccount,
+      sendEmailChangeOtp,
+      updateEmail,
+      refreshPlayerFromFirestore,
+      continueAsGuest,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export async function ensurePlayerFirestoreProfile(
+  extras: FirestoreUserExtras,
+): Promise<void> {
+  const phone = String(extras.phone ?? "").trim();
+  if (!phone) throw new Error("لا يوجد رقم جوال للحفظ");
+  await ensureFirestoreUserByPhone(phone, extras);
 }
 
 export function useAuth() {
