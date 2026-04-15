@@ -34,7 +34,7 @@ export default function StorePaymentScreen() {
       setCustomerName(checkout.customerName);
       setCustomerPhone(checkout.customerPhone);
     }
-  }, [payloadStr]);
+  }, [checkout]);
 
   const submitCash = async () => {
     if (!checkout || !user || user.id === "guest") {

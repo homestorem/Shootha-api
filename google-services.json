@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "487857512888",
+    "project_id": "shootha-b6e9c",
+    "storage_bucket": "shootha-b6e9c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:487857512888:android:36984e373b20f1ea002f4d",
+        "android_client_info": {
+          "package_name": "com.shootabusiness.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBUlEnX4pmHy8nctewnZMPfkB8Vk1D8ju4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:487857512888:android:5fee412859be2a04002f4d",
+        "android_client_info": {
+          "package_name": "com.shootha"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBUlEnX4pmHy8nctewnZMPfkB8Vk1D8ju4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

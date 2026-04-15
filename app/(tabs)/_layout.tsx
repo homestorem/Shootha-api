@@ -124,8 +124,16 @@ function ClassicTabLayout() {
 }
 
 export default function TabLayout() {
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
+  /** NativeTabs + أيقونات SF Symbol ليست مخصصة لأندرويد — قد تسبب إغلاق فوري في release */
+  if (Platform.OS === "android") {
+    return <ClassicTabLayout />;
+  }
+  try {
+    if (isLiquidGlassAvailable()) {
+      return <NativeTabLayout />;
+    }
+  } catch {
+    /* تجاهل — نستخدم التبويب الكلاسيكي */
   }
   return <ClassicTabLayout />;
 }

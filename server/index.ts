@@ -10,6 +10,10 @@ import * as path from "path";
 const app = express();
 const log = console.log;
 
+app.get("/health", (_req, res) => {
+  res.status(200).json({ ok: true, service: "shootha-api" });
+});
+
 app.use(
   cors({
     origin: true,

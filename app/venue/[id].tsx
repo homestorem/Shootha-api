@@ -281,14 +281,6 @@ export default function VenueDetailScreen() {
     ]).start();
   }, [amountToCharge, priceScale]);
 
-  const selectedPaidLabels = useMemo(() => {
-    if (!venue?.paidServiceOptions?.length || selectedPaidIds.length === 0) return [] as string[];
-    const set = new Set(selectedPaidIds);
-    return venue.paidServiceOptions
-      .filter((o) => set.has(o.id))
-      .map((o) => `${o.label} (${formatPrice(o.price)})`);
-  }, [venue, selectedPaidIds]);
-
   const { data: dayBookingsSb = [] } = useQuery({
     queryKey: ["venue-day", id, selectedDate],
     queryFn: () => fetchVenueBookingsForDay(id, selectedDate),

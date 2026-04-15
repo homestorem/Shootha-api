@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
 View,
 Text,
@@ -146,6 +146,7 @@ const [profileRow, setProfileRow] = useState<{
 const [supportChatUnread, setSupportChatUnread] = useState(false)
 const [showLanguageModal, setShowLanguageModal] = useState(false)
 const [showInviteModal, setShowInviteModal] = useState(false)
+const segmentsKey = useMemo(() => segments.join("/"), [segments])
 
 useEffect(() => {
   let cancelled = false
@@ -214,7 +215,7 @@ useEffect(() => {
   return () => {
     cancelled = true
   }
-}, [user, token, isGuest, segments.join("/")])
+}, [user, token, isGuest, segmentsKey])
 
 const topPadding=Platform.OS==="web"?67:insets.top
 const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom

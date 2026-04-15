@@ -36,7 +36,7 @@ export default function StoreDetailsScreen() {
   });
 
   const store = storeQuery.data;
-  const products = productsQuery.data ?? [];
+  const products = useMemo(() => productsQuery.data ?? [], [productsQuery.data]);
 
   const categories = useMemo(() => {
     const set = new Map<string, string>();

@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, ReactNode, useEffect, useMemo, useState } from "react";
-import { DevSettings, I18nManager, LayoutAnimation, Platform, UIManager } from "react-native";
+import { I18nManager, LayoutAnimation, Platform, UIManager } from "react-native";
 import i18next from "@/i18n";
 import { getDirectionalTextProps, isRtlLanguage } from "@/lib/i18n-helpers";
 import { getPlayerLanguage, updatePlayerLanguage } from "@/lib/firestoreUserProfile";
@@ -72,8 +72,11 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     const needsReload = I18nManager.isRTL !== targetRTL;
     I18nManager.allowRTL(targetRTL);
     I18nManager.forceRTL(targetRTL);
-    if (needsReload && typeof DevSettings.reload === "function") {
-      DevSettings.reload();
+    // DevSettings is not guaranteed to exist in production builds.
+    // Guarding here prevents release-time startup crashes on some devices.
+    const reload = (globalThis as { __DEV__?: boolean; DevSettings?: { reload?: () => void } }).DevSettings?.reload;
+    if (needsReload && typeof reload === "function") {
+      reload();
     }
   };
 

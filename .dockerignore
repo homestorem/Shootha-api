@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+.expo
+.cursor
+dist
+build
+coverage
+*.local
+*.log
+assets
+android
+ios

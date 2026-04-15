@@ -2,7 +2,7 @@ import "react-native-get-random-values";
 import "@/i18n";
 
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Stack, router } from "expo-router";
+import { Stack, router, useRootNavigationState } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -25,28 +25,33 @@ import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { LanguageProvider, resolveCloudLanguageOrNull, useLang } from "@/context/LanguageContext";
 import { StoreCartProvider } from "@/context/StoreCartContext";
 import { StatusBar } from "expo-status-bar";
-import { Platform, Pressable, Text, View } from "react-native";
+import { Platform, View } from "react-native";
 import { AnimatedLogoSplash } from "@/components/AnimatedLogoSplash";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { reloadAppAsync } from "expo";
 import {
   installGlobalErrorHandlers,
   logStartupEnvironment,
   validateStartupConfig,
 } from "@/lib/startupDiagnostics";
+import { getFirebaseApp } from "@/lib/firebase";
 
 SplashScreen.preventAutoHideAsync().catch((error) => {
   console.error("[startup] SplashScreen.preventAutoHideAsync failed", error);
 });
 
 function AppNavigator() {
+  const rootNav = useRootNavigationState();
   const { isLoading, user } = useAuth();
   const { setLanguageForUser } = useLang();
   const { requestLocation } = useLocation();
+  const userId = user?.id;
+  const userRole = user?.role;
   const hasRedirected = useRef(false);
   const promptedForUserRef = useRef<string | null>(null);
 
   useEffect(() => {
+    /** بدون مفتاح الجذر، router.replace قد يُسقط التطبيق في الإصدار (release) */
+    if (!rootNav?.key) return;
     if (isLoading) return;
     if (hasRedirected.current) return;
 
@@ -57,7 +62,7 @@ function AppNavigator() {
     } else {
       router.replace("/auth/player/login");
     }
-  }, [isLoading, user]);
+  }, [rootNav?.key, isLoading, user]);
 
   useEffect(() => {
     if (Platform.OS === "web") return;
@@ -77,18 +82,18 @@ function AppNavigator() {
   }, [user, requestLocation]);
 
   useEffect(() => {
-    if (!user || user.id === "guest" || user.role !== "player") return;
+    if (!userId || userId === "guest" || userRole !== "player") return;
     (async () => {
       try {
-        const cloud = await resolveCloudLanguageOrNull(user.id);
+        const cloud = await resolveCloudLanguageOrNull(userId);
         if (cloud) {
-          await setLanguageForUser(cloud, user.id);
+          await setLanguageForUser(cloud, userId);
         }
       } catch (error) {
         console.error("[startup] language sync failed", error);
       }
     })();
-  }, [user?.id, user?.role, setLanguageForUser]);
+  }, [userId, userRole, setLanguageForUser]);
 
   return (
     <>
@@ -109,39 +114,6 @@ function AppNavigator() {
   <Stack.Screen name="store/[id]" options={{ headerShown: false, animation: "slide_from_right" }} />
 </Stack>
     </>
-  );
-}
-
-function StartupFailureScreen({ error }: { error: string }) {
-  const handleRestart = async () => {
-    try {
-      await reloadAppAsync();
-    } catch (reloadError) {
-      console.error("[startup] failed to restart app", reloadError);
-    }
-  };
-
-  return (
-    <View style={{ flex: 1, justifyContent: "center", paddingHorizontal: 24, backgroundColor: "#0A0A0A" }}>
-      <Text style={{ color: "#FFFFFF", fontSize: 22, fontWeight: "700", textAlign: "center", marginBottom: 12 }}>
-        Startup failed
-      </Text>
-      <Text style={{ color: "rgba(255,255,255,0.8)", textAlign: "center", marginBottom: 24 }}>
-        {error}
-      </Text>
-      <Pressable
-        onPress={handleRestart}
-        style={{
-          alignSelf: "center",
-          backgroundColor: "#228B22",
-          paddingVertical: 12,
-          paddingHorizontal: 24,
-          borderRadius: 10,
-        }}
-      >
-        <Text style={{ color: "#FFFFFF", fontWeight: "600" }}>Restart app</Text>
-      </Pressable>
-    </View>
   );
 }
 
@@ -167,8 +139,6 @@ export default function RootLayout() {
     Cairo_700Bold,
   });
   const [splashIntroDone, setSplashIntroDone] = useState(Platform.OS === "web");
-  const [startupError, setStartupError] = useState<string | null>(null);
-
   useEffect(() => {
     installGlobalErrorHandlers();
     logStartupEnvironment();
@@ -177,25 +147,27 @@ export default function RootLayout() {
     if (configErrors.length > 0) {
       const message = configErrors.join(" | ");
       console.error("[startup] preflight failed", message);
-      setStartupError(message);
+      console.warn(
+        "[startup] App will continue. Verify EXPO_PUBLIC_FIREBASE_* in EAS if Firebase features fail.",
+      );
+    }
+
+    try {
+      getFirebaseApp();
+      console.log("[startup] Firebase initialized successfully");
+    } catch (error) {
+      console.error("[startup] Firebase initialization failed", error);
     }
   }, []);
 
+  const fontsReady = fontsLoaded || !!fontError;
+
+  /** إخفاء السبلاش الأصلي بعد جاهزية الخطوط لتفادي تعارض مع الإقلاع على أندرويد */
   useEffect(() => {
-    if (fontsLoaded || fontError) {
-      void SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded, fontError]);
-
-  if (!fontsLoaded && !fontError) return null;
-
-  if (startupError) {
-    return (
-      <SafeAreaProvider>
-        <StartupFailureScreen error={startupError} />
-      </SafeAreaProvider>
-    );
-  }
+    if (Platform.OS === "web") return;
+    if (!fontsReady) return;
+    void SplashScreen.hideAsync();
+  }, [fontsReady]);
 
   return (
     <SafeAreaProvider>
@@ -208,29 +180,31 @@ export default function RootLayout() {
           });
         }}
       >
-        <View style={{ flex: 1 }}>
-          <QueryClientProvider client={queryClient}>
-            <AuthProvider>
-              <ThemeProvider>
-                <LanguageProvider>
-                  <FirebaseAuthRoot>
-                    <GuestPromptProvider>
-                      <LocationProvider>
-                        <StoreCartProvider>
-                          <BookingsProvider>
-                            <RandomMatchProvider>
-                              <AppShell />
-                            </RandomMatchProvider>
-                          </BookingsProvider>
-                        </StoreCartProvider>
-                      </LocationProvider>
-                    </GuestPromptProvider>
-                  </FirebaseAuthRoot>
-                </LanguageProvider>
-              </ThemeProvider>
-            </AuthProvider>
-          </QueryClientProvider>
-          {!splashIntroDone ? (
+        <View style={{ flex: 1, backgroundColor: "#228B22" }}>
+          {fontsReady ? (
+            <QueryClientProvider client={queryClient}>
+              <AuthProvider>
+                <ThemeProvider>
+                  <LanguageProvider>
+                    <FirebaseAuthRoot>
+                      <GuestPromptProvider>
+                        <LocationProvider>
+                          <StoreCartProvider>
+                            <BookingsProvider>
+                              <RandomMatchProvider>
+                                <AppShell />
+                              </RandomMatchProvider>
+                            </BookingsProvider>
+                          </StoreCartProvider>
+                        </LocationProvider>
+                      </GuestPromptProvider>
+                    </FirebaseAuthRoot>
+                  </LanguageProvider>
+                </ThemeProvider>
+              </AuthProvider>
+            </QueryClientProvider>
+          ) : null}
+          {Platform.OS !== "web" && !splashIntroDone ? (
             <AnimatedLogoSplash onComplete={() => setSplashIntroDone(true)} />
           ) : null}
         </View>

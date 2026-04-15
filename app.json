@@ -7,10 +7,10 @@
     "icon": "./assets/images/icon.png",
     "scheme": "shootha",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
-      "image": "./assets/images/splash-icon.png",
-      "resizeMode": "contain",
+      "image": "./assets/images/splash-new.png",
+      "resizeMode": "cover",
       "backgroundColor": "#228B22"
     },
     "ios": {
@@ -27,11 +27,10 @@
     },
     "android": {
       "package": "com.shootha",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "backgroundColor": "#0A0A0A",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#228B22",
+        "foregroundImage": "./assets/images/icon.png"
       },
       "permissions": [
         "android.permission.RECEIVE_BOOT_COMPLETED",
@@ -41,6 +40,11 @@
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
+    },
+    "updates": {
+      "enabled": false,
+      "checkAutomatically": "NEVER",
+      "fallbackToCacheTimeout": 0
     },
     "plugins": [
       "expo-router",

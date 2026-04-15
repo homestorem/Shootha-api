@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -25,7 +25,7 @@ export default function StorePayWalletScreen() {
   const walletToken = isGuest ? null : token;
   const amount = useMemo(() => checkout?.total ?? 0, [checkout?.total]);
 
-  const loadBalance = async () => {
+  const loadBalance = useCallback(async () => {
     try {
       const x = await fetchWallet(walletToken, 5, {
         userId: user?.id && user.id !== "guest" ? user.id : undefined,
@@ -34,11 +34,11 @@ export default function StorePayWalletScreen() {
     } catch {
       setBalance(null);
     }
-  };
+  }, [walletToken, user?.id]);
 
   React.useEffect(() => {
     void loadBalance();
-  }, []);
+  }, [loadBalance]);
 
   const onPay = async () => {
     if (!checkout || !user || user.id === "guest") {

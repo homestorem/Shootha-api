@@ -14,7 +14,6 @@ import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Colors } from "@/constants/colors";
 import { useTheme } from "@/context/ThemeContext";
-import { Venue } from "@/context/BookingsContext";
 import { VenueListCard } from "@/components/VenueListCard";
 import { SkeletonVenueCard } from "@/components/SkeletonCard";
 import { fetchVenues } from "@/lib/app-data";

@@ -191,7 +191,7 @@ export default function BookingPayWalletScreen() {
       Alert.alert("تم الدفع والحجز", `تم خصم ${formatPrice(payableAmount)} من المحفظة وتأكيد حجزك.`, [
         { text: "حسناً", onPress: () => router.replace("/(tabs)/bookings") },
       ]);
-    } catch (e) {
+    } catch {
       Alert.alert(
         "تنبيه",
         "تم الخصم من المحفظة لكن تعذر حفظ الحجز. راجع حجوزاتك أو الدعم.",

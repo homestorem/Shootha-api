@@ -64,8 +64,18 @@ export async function assertPhoneAllowedForPlayerApp(phoneE164: string): Promise
     const msg = body.message?.trim();
     throw new Error(msg || "هذا الرقم غير مسموح لتطبيق اللاعب.");
   } catch (e) {
-    if (e instanceof Error) throw e;
-    throw new Error("تعذر التحقق من صلاحية الرقم حالياً.");
+    if (e instanceof Error) {
+      const raw = e.message || "";
+      const networkTimeout =
+        /Network request timed out|timed out|timeout|network request failed/i.test(raw);
+      if (networkTimeout) {
+        throw new Error(
+          `تعذر الوصول إلى خادم التحقق (${base}). تأكد أن السيرفر المحلي يعمل، والهاتف والحاسوب على نفس شبكة Wi‑Fi، واسمح للمنفذ 4001 في جدار حماية ويندوز.`,
+        );
+      }
+      throw e;
+    }
+    throw new Error(`تعذر التحقق من صلاحية الرقم حالياً (${base}).`);
   }
 }
 
