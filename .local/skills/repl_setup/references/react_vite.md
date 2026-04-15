@@ -73,8 +73,7 @@ When your React app calls a backend API, use the Replit domain instead of localh
 
 ```typescript
 // Get the API URL from environment or use the Replit domain
-const API_URL = import.meta.env.VITE_API_URL || '';
-
+const API_URL = process.env.EXPO_PUBLIC_API_URL!;
 // Fetch from your backend
 const response = await fetch(`${API_URL}/api/users`);
 ```

@@ -9,8 +9,16 @@
 import { Platform } from "react-native";
 import { getResolvedApiBaseUrl, getResolvedOtpDedicatedBaseUrl } from "@/lib/devServerHost";
 
-/** فشل أسرع بدل انتظار طويل عند خادم غير متاح */
-const OTP_TIMEOUT_MS = 22_000;
+function otpHttpTimeoutMs(): number {
+  const raw = String(process.env.EXPO_PUBLIC_OTP_HTTP_TIMEOUT_MS ?? "").trim();
+  const n = raw ? Number(raw) : NaN;
+  const fallback = 22_000;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(90_000, Math.max(5_000, Math.round(n)));
+}
+
+/** مهلة طلبات إرسال/تحقق OTP — قابلة للزيادة عند استضافة باردة (مثل Render بعد السكون) */
+const OTP_TIMEOUT_MS = otpHttpTimeoutMs();
 
 export type OtpEndpoints = { sendUrl: string; verifyUrl: string };
 

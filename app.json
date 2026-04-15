@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "shootha",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/splash-new.png",
       "resizeMode": "cover",
@@ -47,6 +47,7 @@
       "fallbackToCacheTimeout": 0
     },
     "plugins": [
+      "expo-dev-client",
       "expo-router",
       "expo-font",
       "expo-web-browser",

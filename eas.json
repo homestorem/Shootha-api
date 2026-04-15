@@ -7,7 +7,11 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "environment": "development"
+      "environment": "development",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://shootha-api.onrender.com",
+        "EXPO_PUBLIC_OTP_HTTP_TIMEOUT_MS": "60000"
+      }
     },
     "preview": {
       "distribution": "internal",
