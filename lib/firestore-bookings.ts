@@ -17,6 +17,7 @@ import {
 import { getFirestoreDb } from "@/lib/firebase";
 import { firebaseConfig } from "@/lib/firebaseConfig";
 import { getResolvedApiBaseUrl } from "@/lib/devServerHost";
+import { assertBookingStartNotInPastLocal } from "@/lib/booking-datetime-guard";
 
 /** يطابق Booking في الواجهة — يُعرَّف هنا لتجنب اعتماد دائري مع السياق */
 type UiBookingStatus = "upcoming" | "active" | "completed" | "cancelled";
@@ -105,6 +106,8 @@ export type FirestoreBookingDoc = {
   cancelledWhileUiStatus?: Exclude<UiBookingStatus, "cancelled">;
   /** نسخة ثابتة من بيانات اللاعب والحجز عند الإلغاء */
   cancellationSnapshot?: CancellationSnapshot;
+  /** معرّف مستند walletTransactions عند الدفع من المحفظة */
+  walletLedgerId?: string;
 };
 
 export function isFirebaseBookingsEnabled(): boolean {
@@ -231,12 +234,12 @@ async function assertNoTimeConflict(
     collection(db, "bookings"),
     where("venueId", "==", venueId),
     where("date", "==", date),
-    where("status", "==", "confirmed"),
   );
   const snap = await getDocs(q);
   const norm = startTime.includes(":") ? startTime : `${String(startTime).padStart(2, "0")}:00`;
   for (const docSnap of snap.docs) {
     const x = docSnap.data() as FirestoreBookingDoc;
+    if (x.status !== "confirmed" && x.status !== "pending") continue;
     if (rangesOverlapMin(norm, duration, x.startTime, x.duration)) {
       throw new Error("الوقت محجوز مسبقاً");
     }
@@ -280,6 +283,8 @@ export async function createBookingInFirestore(input: CreateBookingInput): Promi
     throw new Error("مدة الحجز غير صالحة");
   }
   const pricePerHour = duration > 0 ? Math.round((totalPrice / duration) * 100) / 100 : totalPrice;
+
+  assertBookingStartNotInPastLocal(input.date, normTime);
 
   if (!input.skipTimeConflictCheck) {
     await assertNoTimeConflict(input.venueId, input.date, normTime, duration);
@@ -382,6 +387,8 @@ export async function createPendingBookingInFirestore(
   }
   const pricePerHour = duration > 0 ? Math.round((totalPrice / duration) * 100) / 100 : totalPrice;
 
+  assertBookingStartNotInPastLocal(input.date, normTime);
+
   if (!input.skipTimeConflictCheck) {
     await assertNoTimeConflict(input.venueId, input.date, normTime, duration);
   }
@@ -407,13 +414,30 @@ export async function createPendingBookingInFirestore(
   if (input.randomMatchId) {
     payload.randomMatchId = input.randomMatchId;
   }
+  if (
+    input.playerLat != null &&
+    input.playerLon != null &&
+    Number.isFinite(input.playerLat) &&
+    Number.isFinite(input.playerLon)
+  ) {
+    (payload as FirestoreBookingDoc).playerLat = input.playerLat;
+    (payload as FirestoreBookingDoc).playerLon = input.playerLon;
+  }
+  const code = String(input.promoCode ?? "").trim().toUpperCase();
+  if (code && input.promoDiscountAmount != null && input.bookingSubtotalBeforePromo != null) {
+    (payload as FirestoreBookingDoc).promoCode = code;
+    (payload as FirestoreBookingDoc).promoDiscountAmount = Math.round(Number(input.promoDiscountAmount));
+    (payload as FirestoreBookingDoc).bookingSubtotalBeforePromo = Math.round(
+      Number(input.bookingSubtotalBeforePromo),
+    );
+  }
   const ref = await addDoc(collection(db, "bookings"), payload);
   return ref.id;
 }
 
 export async function confirmBookingPaymentInFirestore(
   bookingId: string,
-  extras?: { transactionId?: string; checkoutUrl?: string },
+  extras?: { transactionId?: string; checkoutUrl?: string; walletLedgerId?: string },
 ): Promise<void> {
   const db = getFirestoreDb();
   const ref = doc(db, "bookings", bookingId);
@@ -424,6 +448,7 @@ export async function confirmBookingPaymentInFirestore(
     paymentMethod: "online",
     ...(extras?.transactionId ? { paymentTransactionId: extras.transactionId } : {}),
     ...(extras?.checkoutUrl ? { paymentCheckoutUrl: extras.checkoutUrl } : {}),
+    ...(extras?.walletLedgerId ? { walletLedgerId: extras.walletLedgerId } : {}),
     paidAt: serverTimestamp(),
   });
 }

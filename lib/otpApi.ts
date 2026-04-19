@@ -63,6 +63,7 @@ async function readJson(res: Response): Promise<{
   success?: boolean;
   error?: string;
   message?: string;
+  firebaseBridgeTicket?: string;
 }> {
   try {
     return await res.json();
@@ -162,7 +163,10 @@ export async function sendOtpRequest(phone: string): Promise<void> {
   throw lastErr ?? new Error("فشل إرسال الرمز");
 }
 
-export async function verifyOtpRequest(phone: string, code: string): Promise<void> {
+export async function verifyOtpRequest(
+  phone: string,
+  code: string,
+): Promise<{ firebaseBridgeTicket?: string }> {
   const ep = getOtpEndpoints();
   if (!ep) {
     throw new Error(otpNotConfiguredMessage());
@@ -190,7 +194,11 @@ export async function verifyOtpRequest(phone: string, code: string): Promise<voi
               : `فشل التحقق (${res.status})`,
         );
       }
-      return;
+      const ticket =
+        typeof data.firebaseBridgeTicket === "string" && data.firebaseBridgeTicket.trim()
+          ? data.firebaseBridgeTicket.trim()
+          : undefined;
+      return ticket ? { firebaseBridgeTicket: ticket } : {};
     } catch (e) {
       lastErr = e instanceof Error ? e : new Error(String(e));
       if (attempt === 0 && isRetryableNetworkError(lastErr)) {

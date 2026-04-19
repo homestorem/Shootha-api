@@ -14,8 +14,28 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { useTheme } from "@/context/ThemeContext";
-import { useAuth } from "@/context/AuthContext";
+import { useAuth, type AuthUser } from "@/context/AuthContext";
+import { useLocation } from "@/context/LocationContext";
 import { fetchWallet, redeemPrepaidCard, formatIqd, type WalletTransaction } from "@/lib/wallet-api";
+import type { VoucherRedeemerProfile } from "@/lib/voucher-redeemer-profile";
+
+function buildVoucherRedeemerProfile(u: AuthUser, lat: number, lon: number): VoucherRedeemerProfile {
+  return {
+    userId: u.id,
+    phone: u.phone?.trim() || null,
+    name: u.name?.trim() || null,
+    email: u.email?.trim() || null,
+    playerId: u.playerId?.trim() || null,
+    role: u.role,
+    latitude: Number.isFinite(lat) ? lat : null,
+    longitude: Number.isFinite(lon) ? lon : null,
+    dateOfBirth: u.dateOfBirth ?? null,
+    gender: u.gender ?? null,
+    position: u.position ?? null,
+    profileImage: u.profileImage ?? null,
+    inviteCode: u.inviteCode ?? null,
+  };
+}
 import { Colors } from "@/constants/colors";
 import { GUEST_FULL_ACCESS } from "@/constants/guestAccess";
 
@@ -23,6 +43,7 @@ export default function WalletScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const { user, token, isGuest } = useAuth();
+  const { latitude, longitude } = useLocation();
 
   /** لاعب مسجّل، أو ضيف عند تفعيل الوصول الكامل */
   const allowWallet =
@@ -74,21 +95,27 @@ export default function WalletScreen() {
 
   const onRedeem = async () => {
     if (!allowWallet) return;
+    if (isGuest || !user?.id || user.id === "guest") {
+      Alert.alert("تنبيه", "سجّل الدخول أولاً حتى تقدر تفعّل بطاقة الشحن.");
+      return;
+    }
     const trimmed = code.trim();
-    if (trimmed.length < 8) {
-      Alert.alert("تنبيه", "أدخل رقم البطاقة كاملاً (8 أحرف على الأقل)");
+    if (trimmed.length < 6) {
+      Alert.alert("تنبيه", "أدخل رمز القسيمة كاملاً (6 أحرف على الأقل)");
       return;
     }
     setRedeeming(true);
     try {
+      const redeemer = buildVoucherRedeemerProfile(user, latitude, longitude);
       const { balance: next, amount } = await redeemPrepaidCard(walletToken, trimmed, {
-        userId: !isGuest && user?.id && user.id !== "guest" ? user.id : undefined,
+        userId: user.id,
+        redeemer,
       });
       setBalance(next);
       setCode("");
       try {
         const data = await fetchWallet(walletToken, 30, {
-          userId: !isGuest && user?.id && user.id !== "guest" ? user.id : undefined,
+          userId: user.id,
         });
         setTransactions(data.transactions);
       } catch {

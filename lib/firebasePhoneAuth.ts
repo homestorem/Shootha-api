@@ -18,6 +18,7 @@ import { assertFirebaseConfigured } from "@/lib/firebaseConfig";
 import { generateImmutablePlayerPublicId } from "@/lib/playerPublicId";
 import { generateFriendInviteCode } from "@/lib/referral-invite-code";
 import { sendOtpRequest, verifyOtpRequest } from "@/lib/otpApi";
+import { setPendingFirebaseBridgeTicket } from "@/lib/firebaseBridgeTicket";
 import { getResolvedApiBaseUrl } from "@/lib/devServerHost";
 
 /** رمز دعوة الصديق — يُولَّد مرة ويُخزَّن في `inviteCode` */
@@ -42,7 +43,10 @@ export async function verifyPhoneOtp(phoneE164: string, code: string): Promise<v
   const phone = phoneE164.trim();
   const clean = String(code).replace(/\s/g, "");
   if (!clean) throw new Error("أدخل رمز التحقق");
-  await verifyOtpRequest(phone, clean);
+  const { firebaseBridgeTicket } = await verifyOtpRequest(phone, clean);
+  if (firebaseBridgeTicket) {
+    setPendingFirebaseBridgeTicket(phone, firebaseBridgeTicket);
+  }
 }
 
 /**

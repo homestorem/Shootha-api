@@ -8,14 +8,22 @@ import {
   debitWalletFirestoreTransaction,
   fetchWalletFromFirestore,
   isFirebaseClientWalletEnabled,
+  redeemPrepaidCardFirestoreTransaction,
 } from "@/lib/wallet-firestore";
 import type { WalletTransaction } from "@/lib/wallet-types";
+import { normalizePrepaidCardCode } from "@/lib/prepaid-code";
+import type { VoucherRedeemerProfile } from "@/lib/voucher-redeemer-profile";
 
 export type { WalletTransaction };
+export type { VoucherRedeemerProfile };
 
 export type WalletFetchOptions = {
   /** مطابق لـ `AuthUser.id` (مستند users في Firestore) */
   userId?: string | null;
+};
+
+export type RedeemPrepaidCardOptions = WalletFetchOptions & {
+  redeemer?: VoucherRedeemerProfile | null;
 };
 
 function apiBase(): string {
@@ -34,15 +42,6 @@ function newIdempotencyKey(): string {
 
 function isFirebaseConfigured(): boolean {
   return Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
-}
-
-/** مطابقة لـ `server/storage.normalizePrepaidCardCode` — لصق البطاقة بمسافات أو شرطات */
-function normalizePrepaidCardCode(raw: string): string {
-  return String(raw ?? "")
-    .trim()
-    .replace(/\s+/g, "")
-    .replace(/-/g, "")
-    .toUpperCase();
 }
 
 export async function fetchWallet(
@@ -131,7 +130,7 @@ export async function payFromWallet(
 export async function redeemPrepaidCard(
   token: string | null,
   code: string,
-  _opts?: WalletFetchOptions,
+  opts?: RedeemPrepaidCardOptions,
 ): Promise<{ amount: number; balance: number }> {
   const base = apiBase();
 
@@ -156,7 +155,17 @@ export async function redeemPrepaidCard(
     };
   }
 
-  throw new Error("شحن البطاقات يتطلب جلسة الخادم (Bearer) أو تفعيل مسار الشحن السحابي.");
+  const uid = String(opts?.userId ?? "").trim();
+  if (uid && isFirebaseConfigured() && isFirebaseClientWalletEnabled()) {
+    const out = await redeemPrepaidCardFirestoreTransaction({
+      userId: uid,
+      code,
+      redeemer: opts?.redeemer,
+    });
+    return { amount: out.amount, balance: out.balance };
+  }
+
+  throw new Error("شحن البطاقات غير مُتاح — تأكد من تسجيل الدخول وربط Firebase/الخادم.");
 }
 
 export { formatIqd } from "./format-currency";

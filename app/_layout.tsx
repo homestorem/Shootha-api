@@ -15,17 +15,18 @@ import {
   Cairo_700Bold,
 } from "@expo-google-fonts/cairo";
 import { BookingsProvider } from "@/context/BookingsContext";
+import { PostMatchRatingCoordinator } from "@/components/PostMatchRatingCoordinator";
 import { RandomMatchProvider } from "@/context/RandomMatchContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import FirebaseAuthRoot from "@/components/FirebaseAuthRoot";
 import { GuestPromptProvider } from "@/context/GuestPromptContext";
 import { LocationProvider, useLocation } from "@/context/LocationContext";
-import { registerPlayerPushToFirestore } from "@/lib/notifications";
+import { registerPlayerPushToFirestore, setupNotificationHandler } from "@/lib/notifications";
 import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { LanguageProvider, resolveCloudLanguageOrNull, useLang } from "@/context/LanguageContext";
 import { StoreCartProvider } from "@/context/StoreCartContext";
 import { StatusBar } from "expo-status-bar";
-import { Platform, View } from "react-native";
+import { AppState, Platform, View } from "react-native";
 import { AnimatedLogoSplash } from "@/components/AnimatedLogoSplash";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
@@ -46,16 +47,16 @@ function AppNavigator() {
   const { requestLocation } = useLocation();
   const userId = user?.id;
   const userRole = user?.role;
-  const hasRedirected = useRef(false);
-  const promptedForUserRef = useRef<string | null>(null);
+  /** يتغيّر عند تسجيل الدخول/الخروج — لا نستخدم hasRedirected لمرة واحدة فقط لأنه يمنع التوجيه بعد logout */
+  const lastRoutedUserId = useRef<string | undefined>("__boot__");
 
   useEffect(() => {
     /** بدون مفتاح الجذر، router.replace قد يُسقط التطبيق في الإصدار (release) */
     if (!rootNav?.key) return;
     if (isLoading) return;
-    if (hasRedirected.current) return;
-
-    hasRedirected.current = true;
+    const uid = user?.id;
+    if (lastRoutedUserId.current === uid) return;
+    lastRoutedUserId.current = uid;
 
     if (user) {
       router.replace("/(tabs)");
@@ -67,19 +68,27 @@ function AppNavigator() {
   useEffect(() => {
     if (Platform.OS === "web") return;
     if (!user || user.role !== "player" || user.id === "guest") return;
-    if (promptedForUserRef.current === user.id) return;
-
-    promptedForUserRef.current = user.id;
 
     (async () => {
       try {
-        await registerPlayerPushToFirestore(user.id);
+        await registerPlayerPushToFirestore({ id: user.id, phone: user.phone });
         await requestLocation();
       } catch (error) {
         console.error("[startup] failed post-login init", error);
       }
     })();
   }, [user, requestLocation]);
+
+  /** إعادة تسجيل التوكن عند العودة للتطبيق (مثلاً بعد منح الإذن من الإعدادات) */
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      if (!user || user.role !== "player" || user.id === "guest") return;
+      void registerPlayerPushToFirestore({ id: user.id, phone: user.phone });
+    });
+    return () => sub.remove();
+  }, [user]);
 
   useEffect(() => {
     if (!userId || userId === "guest" || userRole !== "player") return;
@@ -142,6 +151,9 @@ export default function RootLayout() {
   useEffect(() => {
     installGlobalErrorHandlers();
     logStartupEnvironment();
+    if (Platform.OS !== "web") {
+      void setupNotificationHandler();
+    }
 
     const configErrors = validateStartupConfig();
     if (configErrors.length > 0) {
@@ -192,6 +204,7 @@ export default function RootLayout() {
                           <StoreCartProvider>
                             <BookingsProvider>
                               <RandomMatchProvider>
+                                <PostMatchRatingCoordinator />
                                 <AppShell />
                               </RandomMatchProvider>
                             </BookingsProvider>

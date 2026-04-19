@@ -136,10 +136,16 @@ export async function triggerWaylPaymentAndRedirect(
     failure_url: failureUrl,
     cancel_url: failureUrl,
   });
-  const supported = await Linking.canOpenURL(checkoutUrl);
-  if (!supported) {
-    throw new Error("Cannot open Wayl checkout URL on this device.");
+  /** `canOpenURL` يعيد false أحياناً لروابط https على iOS دون LSApplicationQueriesSchemes — نحاول الفتح مباشرةً */
+  try {
+    const supported = await Linking.canOpenURL(checkoutUrl);
+    if (!supported && !/^https?:\/\//i.test(checkoutUrl)) {
+      throw new Error("Cannot open Wayl checkout URL on this device.");
+    }
+    await Linking.openURL(checkoutUrl);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(msg || "تعذر فتح صفحة الدفع. جرّب من جهاز آخر أو حدّث التطبيق.");
   }
-  await Linking.openURL(checkoutUrl);
   return { checkoutUrl };
 }

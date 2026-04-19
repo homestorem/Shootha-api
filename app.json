@@ -4,7 +4,7 @@
     "slug": "shootha",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/icon-app-safe.png",
     "scheme": "shootha",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
@@ -30,7 +30,7 @@
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#228B22",
-        "foregroundImage": "./assets/images/icon.png"
+        "foregroundImage": "./assets/images/icon-app-safe.png"
       },
       "permissions": [
         "android.permission.RECEIVE_BOOT_COMPLETED",

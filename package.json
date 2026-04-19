@@ -26,8 +26,11 @@
     "expo:start:offline:clear": "node --max-old-space-size=8192 ./node_modules/expo/bin/cli start --offline --host lan --max-workers 1 -c",
     "lint": "npx expo lint",
     "lint:fix": "npx expo lint --fix",
+    "icons:safe": "node scripts/pad-app-icon.mjs",
     "android": "expo run:android",
-    "ios": "expo run:ios"
+    "ios": "expo run:ios",
+    "eas:build:apk": "eas build --platform android --profile release-apk",
+    "eas:build:apk:preview": "eas build --platform android --profile preview"
   },
   "dependencies": {
     "@babel/runtime": "^7.29.2",
@@ -73,8 +76,10 @@
     "expo-system-ui": "~6.0.9",
     "expo-web-browser": "~15.0.10",
     "express": "^5.0.1",
+    "express-rate-limit": "^8.3.2",
     "firebase": "^12.11.0",
     "firebase-admin": "^12.7.0",
+    "helmet": "^8.1.0",
     "http-proxy-middleware": "^3.0.5",
     "i18next": "^26.0.4",
     "jsonwebtoken": "^9.0.3",
@@ -90,7 +95,6 @@
     "react-native-gesture-handler": "~2.28.0",
     "react-native-get-random-values": "~1.11.0",
     "react-native-keyboard-controller": "1.18.5",
-    "react-native-maps": "1.20.1",
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
@@ -121,6 +125,7 @@
     "eslint-config-expo": "~10.0.0",
     "nodemon": "^3.1.14",
     "patch-package": "^8.0.0",
+    "sharp": "^0.34.5",
     "typescript": "~5.9.2"
   },
   "private": true

@@ -1,7 +1,7 @@
 
 export const BRAND_PLATFORMS = {
   /** رقم بصيغة E.164 لـ tel: و wa.me */
-  phoneE164: "9647700000000",
+  phoneE164: "9647771957775",
   /** عرض للمستخدم (بدون + إن رغبت) */
   phoneDisplay: "07771957775",
   facebook: "https://www.facebook.com/share/1Po1PEUDz6/",

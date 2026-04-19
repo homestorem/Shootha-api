@@ -84,38 +84,59 @@ export async function fetchBannerAds(): Promise<BannerAd[]> {
  * قائمة الملاعب من قاعدة البيانات عبر الخادم — `GET /api/venues`
  * (مالكو الملاعب `role=owner` ولديهم `venue_name` في `auth_users`).
  */
+async function fetchVenuesFromFirestoreDirect(): Promise<Venue[]> {
+  if (!isFirebaseBookingsEnabled()) return [];
+  const db = getFirestoreDb();
+  const snap = await getDocs(collection(db, "fields"));
+  const raw = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }));
+  return normalizeVenues(raw);
+}
+
 export async function fetchVenues(): Promise<Venue[]> {
   const base = apiBase();
+  let fromApi: Venue[] | null = null;
+
   if (base) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_VENUES_LIST_TIMEOUT_MS);
     try {
       const res = await fetch(`${base}/api/venues`, {
         headers: { Accept: "application/json" },
+        signal: controller.signal,
       });
       if (res.ok) {
         const data = (await res.json()) as { venues?: unknown[] };
-        return normalizeVenues(Array.isArray(data.venues) ? data.venues : []);
+        fromApi = normalizeVenues(Array.isArray(data.venues) ? data.venues : []);
       }
     } catch {
       /* fallback to Firestore مباشرة */
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
+  if (fromApi && fromApi.length > 0) {
+    return fromApi;
+  }
+
   if (!isFirebaseBookingsEnabled()) {
-    return [];
+    return fromApi ?? [];
   }
 
   try {
-    const db = getFirestoreDb();
-    const snap = await getDocs(collection(db, "fields"));
-    const raw = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }));
-    return normalizeVenues(raw);
+    const fromFs = await fetchVenuesFromFirestoreDirect();
+    if (fromFs.length > 0) return fromFs;
+    return fromApi ?? [];
   } catch (e) {
+    if (fromApi && fromApi.length > 0) return fromApi;
     throw new Error(e instanceof Error ? e.message : "تعذّر تحميل الملاعب من قاعدة البيانات");
   }
 }
 
 /** مهلة قصيرة لـ HTTP — إن كان الخادم غير متاح لا ننتظر عشرات الثواني */
 const FETCH_VENUE_HTTP_TIMEOUT_MS = 3_500;
+/** قائمة الملاعب — لا نعلق التطبيق إذا الخادم بطيء */
+const FETCH_VENUES_LIST_TIMEOUT_MS = 12_000;
 /** سقف لـ getDoc عند بطء الشبكة فقط */
 const FETCH_VENUE_FIRESTORE_TIMEOUT_MS = 12_000;
 

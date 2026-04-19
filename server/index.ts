@@ -3,6 +3,7 @@ import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import net from "node:net";
 import cors from "cors";
+import helmet from "helmet";
 import { registerRoutes } from "./routes.ts";
 import * as fs from "fs";
 import * as path from "path";
@@ -10,13 +11,38 @@ import * as path from "path";
 const app = express();
 const log = console.log;
 
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
+
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: false,
+    hidePoweredBy: true,
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  }),
+);
+
+function resolveCorsOrigin(): boolean | string[] {
+  if (process.env.NODE_ENV !== "production") return true;
+  const raw = process.env.ALLOWED_ORIGINS?.trim();
+  if (!raw) {
+    console.warn(
+      "[security] ALLOWED_ORIGINS غير مضبوط في الإنتاج — يُسمح بأي Origin (عيّن قائمة مفصولة بفواصل لاحقاً).",
+    );
+    return true;
+  }
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
 app.get("/health", (_req, res) => {
   res.status(200).json({ ok: true, service: "shootha-api" });
 });
 
 app.use(
   cors({
-    origin: true,
+    origin: resolveCorsOrigin(),
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -32,13 +58,14 @@ declare module "http" {
 function setupBodyParsing(app: express.Application) {
   app.use(
     express.json({
+      limit: "512kb",
       verify: (req, _res, buf) => {
         req.rawBody = buf;
       },
     }),
   );
 
-  app.use(express.urlencoded({ extended: false }));
+  app.use(express.urlencoded({ extended: false, limit: "256kb" }));
 }
 
 function setupRequestLogging(app: express.Application) {
@@ -59,7 +86,16 @@ function setupRequestLogging(app: express.Application) {
       const duration = Date.now() - start;
 
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
+      const sensitive =
+        path.includes("/auth/") ||
+        path.includes("/otp/") ||
+        path.includes("custom-token") ||
+        path.includes("bridge-ticket") ||
+        path.includes("/wallet") ||
+        path.includes("/promo") ||
+        path.includes("/payments") ||
+        path.includes("webhook");
+      if (capturedJsonResponse && !sensitive) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 

@@ -36,7 +36,7 @@ export default function HomeScreen() {
   const { user, isGuest } = useAuth();
   const { t } = useLang();
   const { pushIfLoggedIn } = useGuestPrompt();
-  const { hasPermission, latitude, longitude, requestLocation } = useLocation();
+  const { hasPermission, latitude, longitude, isLocating, requestLocation } = useLocation();
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : 0;
@@ -49,14 +49,12 @@ export default function HomeScreen() {
   });
   const isLoading = sbLoading;
 
-  /** يحدّث السياق (lat/lng) ويُظهر الملاعب مرتبة بالقرب؛ الويب يُحمَّل من LocationProvider. */
+  /** طلب الموقع عند فتح الرئيسية (أصلي + ويب عبر LocationProvider). */
   useEffect(() => {
-    if (Platform.OS === "web") return;
     void requestLocation();
   }, [requestLocation]);
 
   useEffect(() => {
-    if (Platform.OS === "web") return;
     if (hasPermission !== true) return;
     (async () => {
       try {
@@ -95,11 +93,26 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <View>
+          <View style={styles.headerBrandCol}>
             <AppBrand size={28} />
-            <Text style={[styles.userLocation, { color: "#FFFFFF" }]}>
-              {city} {district ? `- ${district}` : ""}
-            </Text>
+            {isLocating && !city.trim() && !district.trim() ? (
+              <Text style={styles.headerLocationMeta}>{t("home.headerLocating")}</Text>
+            ) : hasPermission === false ? (
+              <Text style={styles.headerLocationMeta}>{t("home.headerLocationOff")}</Text>
+            ) : city.trim() || district.trim() ? (
+              <View style={styles.headerLocationLines}>
+                {city.trim() ? (
+                  <Text style={styles.headerCityLine} numberOfLines={1}>
+                    {city.trim()}
+                  </Text>
+                ) : null}
+                {district.trim() ? (
+                  <Text style={styles.headerDistrictLine} numberOfLines={1}>
+                    {district.trim()}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.headerActions}>
@@ -121,13 +134,6 @@ export default function HomeScreen() {
             (isGuest && !GUEST_FULL_ACCESS) || !user || !user.name?.trim()
               ? t("profile.guestName")
               : user.name
-          }
-          locationLines={
-            hasPermission === false
-              ? t("home.locationPermissionHint")
-              : city
-                ? `${t("home.locationCityHintPrefix")} ${city}${district ? ` - ${district}` : ""}`
-                : t("home.locationGeneralHint")
           }
         />
 
@@ -302,9 +308,76 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderWidth: 1,
   },
-  userLocation: {
-    fontSize: 13,
+  headerBrandCol: {
+    flex: 1,
+    minWidth: 0,
+    marginEnd: 10,
+    alignItems: "flex-start",
+  },
+  headerLocationLines: {
+    marginTop: 8,
+    gap: 3,
+    maxWidth: "92%",
+  },
+  headerCityLine: {
+    fontSize: 15,
+    fontFamily: "Cairo_700Bold",
+    color: "rgba(255,255,255,0.98)",
+    letterSpacing: 0.2,
+    textAlign: "left",
+    ...Platform.select({
+      ios: {
+        textShadowColor: "rgba(0,0,0,0.45)",
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 4,
+      },
+      android: {
+        textShadowColor: "rgba(0,0,0,0.5)",
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 3,
+      },
+      default: {},
+    }),
+  },
+  headerDistrictLine: {
+    fontSize: 12,
+    fontFamily: "Cairo_600SemiBold",
+    color: "rgba(255,255,255,0.82)",
+    letterSpacing: 0.15,
+    textAlign: "left",
+    ...Platform.select({
+      ios: {
+        textShadowColor: "rgba(0,0,0,0.35)",
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 3,
+      },
+      android: {
+        textShadowColor: "rgba(0,0,0,0.45)",
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 2,
+      },
+      default: {},
+    }),
+  },
+  headerLocationMeta: {
+    marginTop: 8,
+    fontSize: 12,
     fontFamily: "Cairo_400Regular",
-    marginTop: 2,
+    color: "rgba(255,255,255,0.78)",
+    textAlign: "left",
+    maxWidth: "92%",
+    ...Platform.select({
+      ios: {
+        textShadowColor: "rgba(0,0,0,0.35)",
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 3,
+      },
+      android: {
+        textShadowColor: "rgba(0,0,0,0.4)",
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 2,
+      },
+      default: {},
+    }),
   },
 });

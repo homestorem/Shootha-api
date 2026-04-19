@@ -281,6 +281,39 @@ export default function RegistrationScreen() {
                 },
               })}
             </View>
+          ) : Platform.OS === "android" ? (
+            <>
+              <Pressable
+                style={styles.datePicker}
+                onPress={() => {
+                  setTempDate(dobDate || new Date(2000, 0, 1));
+                  setShowPicker(true);
+                }}
+              >
+                <Ionicons name="calendar-outline" size={18} color="#48484A" />
+                <Text style={styles.dateText}>
+                  {dobDate ? formatDateLocalYmd(dobDate) : t("auth.register.pickDob")}
+                </Text>
+              </Pressable>
+              {showPicker ? (
+                <DateTimePicker
+                  value={tempDate || new Date(2000, 0, 1)}
+                  mode="date"
+                  display="default"
+                  maximumDate={new Date()}
+                  onChange={(_event, selectedDate) => {
+                    setShowPicker(false);
+                    if (!selectedDate) return;
+                    setTempDate(selectedDate);
+                    setDobDate(selectedDate);
+                    const ymd = formatDateLocalYmd(selectedDate);
+                    setDateOfBirth(ymd);
+                    const check = validateBirthDateYmd(ymd, t);
+                    setDobError(check.ok ? "" : check.message);
+                  }}
+                />
+              ) : null}
+            </>
           ) : (
             <>
               <Pressable
@@ -295,21 +328,20 @@ export default function RegistrationScreen() {
                   {dobDate ? formatDateLocalYmd(dobDate) : t("auth.register.pickDob")}
                 </Text>
               </Pressable>
-              <Modal visible={showPicker} transparent animationType="fade">
-                <View style={styles.dateModal}>
-                  <View style={styles.dateModalContent}>
+              <Modal
+                visible={showPicker}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowPicker(false)}
+              >
+                <Pressable style={styles.dateModal} onPress={() => setShowPicker(false)}>
+                  <Pressable style={styles.dateModalContent} onPress={() => {}}>
                     <View style={styles.datePickerWrap}>
                       <DateTimePicker
                         value={tempDate || new Date(2000, 0, 1)}
                         mode="date"
                         display="spinner"
                         themeVariant="light"
-                        {...(Platform.OS === "android"
-                          ? {
-                              textColor: "#111827",
-                              accentColor: Colors.primary,
-                            }
-                          : {})}
                         maximumDate={new Date()}
                         onChange={(_event, selectedDate) => {
                           if (selectedDate) setTempDate(selectedDate);
@@ -334,8 +366,8 @@ export default function RegistrationScreen() {
                     >
                       <Text style={styles.dateConfirmText}>{t("auth.register.confirmDate")}</Text>
                     </Pressable>
-                  </View>
-                </View>
+                  </Pressable>
+                </Pressable>
               </Modal>
             </>
           )}
@@ -365,7 +397,7 @@ export default function RegistrationScreen() {
                 <Ionicons
                   name="male"
                   size={16}
-                  color={gender === "male" ? "#000" : Colors.textSecondary}
+                  color={gender === "male" ? "#fff" : Colors.textSecondary}
                 />
                 <Text
                   style={[
@@ -416,7 +448,7 @@ export default function RegistrationScreen() {
                     <Ionicons
                       name={p.icon as keyof typeof Ionicons.glyphMap}
                       size={18}
-                      color={position === p.key ? "#000" : Colors.textSecondary}
+                      color={position === p.key ? "#fff" : Colors.textSecondary}
                     />
                     <Text
                       style={[
@@ -464,7 +496,7 @@ export default function RegistrationScreen() {
             <Ionicons
               name={isLoading ? "hourglass-outline" : "checkmark-circle"}
               size={20}
-              color="#000"
+              color="#fff"
             />
             <Text style={styles.submitBtnText}>
               {isLoading ? t("auth.register.sending") : t("auth.register.sendOtp")}

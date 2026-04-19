@@ -17,6 +17,21 @@ import { getFirestoreDb } from "@/lib/firebase";
 import { firebaseConfig } from "@/lib/firebaseConfig";
 import { WALLET_LEDGER_COLLECTION } from "@/lib/wallet-ledger-constants";
 import type { WalletTransaction } from "@/lib/wallet-types";
+import { normalizePrepaidCardCode } from "@/lib/prepaid-code";
+import {
+  VOUCHERS_COLLECTION,
+  buildVoucherLookupCodes,
+  isVoucherExpired,
+  isVoucherMarkedUsed,
+  readVoucherAmount,
+  voucherRedeemLedgerId,
+  type VoucherRedeemFields,
+} from "@/lib/voucher-lookup";
+import {
+  buildLedgerRedeemerFields,
+  buildVoucherRedeemerFields,
+  type VoucherRedeemerProfile,
+} from "@/lib/voucher-redeemer-profile";
 
 export function isFirebaseClientWalletEnabled(): boolean {
   return Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
@@ -206,5 +221,113 @@ export async function creditWalletFirestoreTransaction(opts: {
       balanceAfter: next,
     });
     return { balance: next, duplicate: false };
+  });
+}
+
+export async function redeemPrepaidCardFirestoreTransaction(opts: {
+  userId: string;
+  code: string;
+  redeemer?: VoucherRedeemerProfile | null;
+}): Promise<{ amount: number; balance: number; duplicate: boolean }> {
+  const uid = String(opts.userId ?? "").trim();
+  const compact = normalizePrepaidCardCode(opts.code ?? "");
+  if (!uid || !isFirebaseClientWalletEnabled()) {
+    throw new Error("المحفظة السحابية غير مُتاحة");
+  }
+  if (compact.length < 6) {
+    throw new Error("أدخل رمز القسيمة كاملاً");
+  }
+
+  const db = getFirestoreDb();
+  const lookupCodes = buildVoucherLookupCodes(opts.code ?? "");
+  if (lookupCodes.length === 0) {
+    throw new Error("رقم البطاقة غير صحيح أو غير موجود");
+  }
+
+  const q = query(
+    collection(db, VOUCHERS_COLLECTION),
+    where("code", "in", lookupCodes),
+    limit(5),
+  );
+  const found = await getDocs(q);
+  if (found.empty) {
+    throw new Error("رقم البطاقة غير صحيح أو غير موجود");
+  }
+
+  const voucherRef = doc(db, VOUCHERS_COLLECTION, found.docs[0].id);
+  const wRef = doc(db, "wallets", uid);
+  const ledgerId = voucherRedeemLedgerId(found.docs[0].id);
+  const ledgerRef = doc(db, WALLET_LEDGER_COLLECTION, ledgerId);
+
+  return runTransaction(db, async (tx) => {
+    const [vSnap, wSnap, ledgerSnap] = await Promise.all([
+      tx.get(voucherRef),
+      tx.get(wRef),
+      tx.get(ledgerRef),
+    ]);
+
+    const balance = wSnap.exists()
+      ? Math.round(Number((wSnap.data() as { user_balance?: number }).user_balance ?? 0))
+      : 0;
+
+    if (ledgerSnap.exists()) {
+      const amt = Math.round(Number((ledgerSnap.data() as { amount?: number }).amount ?? 0));
+      return { amount: amt, balance, duplicate: true };
+    }
+
+    if (!vSnap.exists()) {
+      throw new Error("رقم البطاقة غير صحيح أو غير موجود");
+    }
+
+    const v = vSnap.data() as VoucherRedeemFields;
+    if (isVoucherMarkedUsed(v)) {
+      throw new Error("هذه البطاقة مُستخدمة مسبقاً");
+    }
+    if (isVoucherExpired(v.expiryDate)) {
+      throw new Error("انتهت صلاحية هذه القسيمة");
+    }
+
+    const amt = readVoucherAmount(v);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      throw new Error("تعذر تفعيل البطاقة");
+    }
+
+    const codeLabel = String(v.code ?? compact).slice(0, 12);
+    const next = balance + amt;
+    const ts = serverTimestamp();
+    const redeemer = opts.redeemer && String(opts.redeemer.userId).trim() === uid ? opts.redeemer : null;
+    const ledgerExtra = redeemer ? buildLedgerRedeemerFields(redeemer) : {};
+    const voucherExtra = redeemer ? buildVoucherRedeemerFields(redeemer) : {};
+    tx.set(wRef, { user_balance: next, updatedAt: ts }, { merge: true });
+    tx.set(ledgerRef, {
+      transactionId: ledgerId,
+      userId: uid,
+      walletUserId: uid,
+      amount: amt,
+      type: "credit",
+      status: "completed",
+      timestamp: ts,
+      bookingId: null,
+      label: `شحن قسيمة ${codeLabel}`,
+      balanceAfter: next,
+      source: "voucher",
+      voucherId: voucherRef.id,
+      voucherCode: String(v.code ?? "").trim() || compact,
+      ...ledgerExtra,
+    });
+    tx.set(
+      voucherRef,
+      {
+        isUsed: true,
+        used: true,
+        usedAt: ts,
+        usedBy: uid,
+        redeemedAmount: amt,
+        ...voucherExtra,
+      },
+      { merge: true },
+    );
+
+    return { amount: amt, balance: next, duplicate: false };
   });
 }

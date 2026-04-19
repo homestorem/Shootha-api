@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { View, StyleSheet, ActivityIndicator } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { Colors } from "@/constants/colors";
-import { AdsSlider, adsSliderLayout } from "@/components/AdsSlider";
+import { AdsSlider, storeAdsSliderLayout } from "@/components/AdsSlider";
 import { DEMO_ADS_WHEN_EMPTY } from "@/constants/fallbackBannerAds";
 import { fetchStoreAds } from "@/lib/firestore-marketplace";
 
@@ -33,11 +33,11 @@ export function StoreAdsBanner() {
       {isPending ? (
         <ActivityIndicator color={Colors.primary} style={styles.loading} />
       ) : (
-        <View style={{ width: adsSliderLayout.wrapSize }}>
+        <View style={{ width: storeAdsSliderLayout.wrapSize }}>
           <AdsSlider
             ads={displayAds}
-            cardWidth={adsSliderLayout.wrapSize}
-            cardHeight={Math.round(adsSliderLayout.cardHeight * 0.5)}
+            cardWidth={storeAdsSliderLayout.wrapSize}
+            cardHeight={storeAdsSliderLayout.cardHeight}
           />
         </View>
       )}

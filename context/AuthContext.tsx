@@ -9,7 +9,8 @@ import React, {
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { signOut, verifyBeforeUpdateEmail, reload } from "firebase/auth";
-import { registerPushToken, setupNotificationHandler } from "@/lib/notifications";
+import { registerPushToken } from "@/lib/notifications";
+import { clearPendingFirebaseBridgeTicket } from "@/lib/firebaseBridgeTicket";
 import { GUEST_FULL_ACCESS } from "@/constants/guestAccess";
 import { isValidEmailFormat } from "@/lib/validation";
 import { getFirebaseAuth } from "@/lib/firebase";
@@ -92,8 +93,8 @@ interface AuthContextValue {
   deleteAccount: () => Promise<void>;
   sendEmailChangeOtp: (newEmail: string) => Promise<Record<string, never>>;
   updateEmail: (newEmail: string, otp: string) => Promise<void>;
-  /** مزامنة inviteCode من Firestore (للحسابات القديمة أو بعد التسجيل) */
-  refreshPlayerFromFirestore: () => Promise<void>;
+  /** مزامنة inviteCode من Firestore (للحسابات القديمة أو بعد التسجيل) — يعيد playerId بعد المزامنة أو null */
+  refreshPlayerFromFirestore: () => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -196,7 +197,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setIsGuest(false);
             setToken(storedToken);
             if (storedToken) {
-              registerPushToken(storedToken, normalized.id).catch(() => {});
+              registerPushToken(storedToken, {
+                id: normalized.id,
+                phone: normalized.phone,
+              }).catch(() => {});
             }
             await AsyncStorage.setItem(
               AUTH_USER_KEY,
@@ -228,7 +232,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               JSON.stringify(normalizedTok),
             );
           }
-          registerPushToken(storedToken, parsed.id).catch(() => {});
+          registerPushToken(storedToken, {
+            id: normalizedTok.id,
+            phone: normalizedTok.phone,
+          }).catch(() => {});
         } catch {
           await Promise.all([
             AsyncStorage.removeItem(AUTH_TOKEN_KEY),
@@ -314,7 +321,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    setupNotificationHandler().catch(() => {});
     (async () => {
       await initAuth();
       setIsLoading(false);
@@ -339,16 +345,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [persistPlayer],
   );
 
-  const refreshPlayerFromFirestore = useCallback(async () => {
-    if (!user || user.role !== "player" || user.id === "guest" || !user.phone?.trim()) return;
+  const refreshPlayerFromFirestore = useCallback(async (): Promise<string | null> => {
+    if (!user || user.role !== "player" || user.id === "guest" || !user.phone?.trim()) return null;
     const phone = normalizeIqPhoneToE164(user.phone);
-    if (!isValidIqMobileE164(phone)) return;
+    if (!isValidIqMobileE164(phone)) return null;
     try {
       await ensureFirestoreUserByPhone(phone, {});
       const fresh = await buildAuthUserFromPhone(phone);
       await persistPlayer(fresh);
+      return (fresh.playerId ?? "").trim() || null;
     } catch (e) {
       console.warn("[auth] refreshPlayerFromFirestore", e);
+      return null;
     }
   }, [user, persistPlayer]);
 
@@ -395,34 +403,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsGuest(true);
   };
 
-  const logout = async (): Promise<void> => {
+  /** لا ننتظر signOut — قد يتعلّق بالشبكة فيُبقي الجلسة محلياً وكأن زر الخروج لا يعمل */
+  const logout = useCallback(async (): Promise<void> => {
     try {
-      await signOut(getFirebaseAuth());
+      void signOut(getFirebaseAuth()).catch(() => {});
     } catch {
-      /* */
+      /* Firebase غير مهيأ */
     }
-    await Promise.all([
-      AsyncStorage.removeItem(AUTH_TOKEN_KEY),
-      AsyncStorage.removeItem(AUTH_USER_KEY),
-      AsyncStorage.removeItem(AUTH_GUEST_KEY),
-      AsyncStorage.removeItem(PENDING_OTP_PHONE_KEY),
-      AsyncStorage.removeItem(USER_SESSION_KEY),
-    ]);
-    setToken(null);
-    if (GUEST_FULL_ACCESS) {
-      await AsyncStorage.multiSet([
-        [AUTH_GUEST_KEY, "true"],
-        [AUTH_USER_KEY, JSON.stringify(GUEST_USER)],
+    try {
+      clearPendingFirebaseBridgeTicket();
+      await Promise.all([
+        AsyncStorage.removeItem(AUTH_TOKEN_KEY),
+        AsyncStorage.removeItem(AUTH_USER_KEY),
+        AsyncStorage.removeItem(AUTH_GUEST_KEY),
+        AsyncStorage.removeItem(PENDING_OTP_PHONE_KEY),
+        AsyncStorage.removeItem(USER_SESSION_KEY),
       ]);
-      setUser(GUEST_USER);
-      setIsGuest(true);
-      router.replace("/(tabs)");
-    } else {
-      setUser(null);
-      setIsGuest(false);
-      router.replace("/auth/player/login");
+    } catch (e) {
+      console.warn("[auth] logout storage clear", e);
     }
-  };
+    setToken(null);
+    setUser(null);
+    setIsGuest(false);
+    /** تسجيل الخروج دائماً يعيد لشاشة الدخول — حتى مع GUEST_FULL_ACCESS يمكن للمستخدم اختيار «متابعة كضيف» من هناك */
+    try {
+      router.replace("/auth/player/login");
+    } catch (e) {
+      console.warn("[auth] logout navigation", e);
+    }
+  }, []);
 
   const updateProfile = async (data: {
     name?: string;
@@ -472,7 +481,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const deleteAccount = async (): Promise<void> => {
     try {
-      await signOut(getFirebaseAuth());
+      void signOut(getFirebaseAuth()).catch(() => {});
     } catch {
       /* */
     }

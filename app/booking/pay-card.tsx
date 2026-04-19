@@ -26,6 +26,7 @@ import { GUEST_FULL_ACCESS } from "@/constants/guestAccess";
 import { Colors } from "@/constants/colors";
 import { useGuestPrompt } from "@/context/GuestPromptContext";
 import { createPendingBookingInFirestore, isFirebaseBookingsEnabled } from "@/lib/firestore-bookings";
+import { isBookingWallStartInPastForLocalCalendarDate } from "@/lib/booking-datetime-guard";
 import { triggerWaylPaymentAndRedirect } from "@/lib/wayl-api";
 import { RANDOM_MATCH_MAX_PLAYERS } from "@/context/RandomMatchContext";
 
@@ -80,6 +81,13 @@ export default function BookingPayCardScreen() {
     }
     if (!validParams || !params.venueId || !params.venueName || !params.date || !params.time) {
       Alert.alert("بيانات ناقصة", "ارجع لصفحة الملعب وأعد اختيار الحجز.");
+      return;
+    }
+    if (isBookingWallStartInPastForLocalCalendarDate(String(params.date), String(params.time))) {
+      Alert.alert(
+        "الوقت غير صالح",
+        "لا يمكن حجز وقت قد مضى. ارجع لصفحة الملعب واختر وقتاً قادماً.",
+      );
       return;
     }
     setPaying(true);

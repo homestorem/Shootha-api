@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import { Colors } from "@/constants/colors";
 import { useTheme } from "@/context/ThemeContext";
 import { AppBackground } from "@/components/AppBackground";
 import { useGuestPrompt } from "@/context/GuestPromptContext";
+import { subscribeLeaderboardPlayerStats } from "@/lib/firestore-leaderboard";
 
 type LeaderboardPlayer = {
   id: string;
@@ -28,12 +29,27 @@ type LeaderboardPlayer = {
   image?: string;
 };
 
-/** TODO: replace with real API data. */
-const PLAYERS: LeaderboardPlayer[] = [];
-
 export default function LeaderboardScreen() {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
+  const [players, setPlayers] = useState<LeaderboardPlayer[]>([]);
+
+  useEffect(() => {
+    const unsub = subscribeLeaderboardPlayerStats(
+      (rows) => {
+        setPlayers(
+          rows.map((r) => ({
+            id: r.id,
+            name: r.displayName,
+            points: r.totalPoints,
+            matches: r.matchesRated,
+          })),
+        );
+      },
+      (e) => console.warn("[leaderboard] subscribe failed", e),
+    );
+    return () => unsub();
+  }, []);
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
   const { guestRestricted, promptLogin } = useGuestPrompt();
@@ -53,7 +69,9 @@ export default function LeaderboardScreen() {
     return null;
   }
 
-  const topPlayers = PLAYERS.slice(0, 3);
+  const topPlayers = players.slice(0, 3);
+  const listRows = players.length >= 3 ? players.slice(3) : players;
+  const listStartRank = players.length >= 3 ? 4 : 1;
 
   return (
     <AppBackground>
@@ -122,7 +140,15 @@ export default function LeaderboardScreen() {
             </Text>
           </View>
 
-          {topPlayers.length >= 3 ? (
+          {players.length === 0 ? (
+            <View style={[styles.emptyWrap, { borderColor: colors.border, backgroundColor: isDark ? "rgba(22, 22, 28, 0.94)" : "rgba(255, 255, 255, 0.92)" }]}>
+              <Ionicons name="hourglass-outline" size={22} color={colors.textSecondary} />
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>لا توجد بيانات حالياً</Text>
+              <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
+                قيّم مبارياتك بعد انتهاء الحجز ليظهر اللاعبون هنا.
+              </Text>
+            </View>
+          ) : topPlayers.length >= 3 ? (
             <>
               <Text style={[styles.sectionLabel, { color: isDark ? colors.textSecondary : colors.text, opacity: isDark ? 1 : 0.72 }]}>
                 المنصة
@@ -167,17 +193,13 @@ export default function LeaderboardScreen() {
               </Text>
             </>
           ) : (
-            <View style={[styles.emptyWrap, { borderColor: colors.border, backgroundColor: isDark ? "rgba(22, 22, 28, 0.94)" : "rgba(255, 255, 255, 0.92)" }]}>
-              <Ionicons name="hourglass-outline" size={22} color={colors.textSecondary} />
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>لا توجد بيانات حالياً</Text>
-              <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
-                سيتم عرض أفضل اللاعبين عند توفر نتائج فعلية.
-              </Text>
-            </View>
+            <Text style={[styles.sectionLabel, { color: isDark ? colors.textSecondary : colors.text, opacity: isDark ? 1 : 0.72, marginTop: 4 }]}>
+              الترتيب
+            </Text>
           )}
 
           <View style={styles.list}>
-            {PLAYERS.slice(3).map((player, index) => (
+            {listRows.map((player, index) => (
               <View
                 key={player.id}
                 style={[
@@ -214,7 +236,7 @@ export default function LeaderboardScreen() {
                     colors={[`${Colors.primary}33`, `${Colors.primary}08`]}
                     style={styles.rankCircle}
                   >
-                    <Text style={styles.rankNumber}>{index + 4}</Text>
+                    <Text style={styles.rankNumber}>{listStartRank + index}</Text>
                   </LinearGradient>
 
                   {player.image ? (

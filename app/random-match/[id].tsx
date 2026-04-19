@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from "react";
+import React, { useMemo } from "react";
 import {
   View,
   Text,
@@ -18,26 +18,13 @@ import { useAuth } from "@/context/AuthContext";
 import { useGuestPrompt } from "@/context/GuestPromptContext";
 import { AppBackground } from "@/components/AppBackground";
 import { Colors } from "@/constants/colors";
-import { decodeMatchFromInviteQuery } from "@/lib/random-match-invite";
-
 export default function RandomMatchDetailScreen() {
-  const { id, p } = useLocalSearchParams<{ id: string; p?: string }>();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
-  const { matches, joinMatch, importMatchFromSnapshot } = useRandomMatch();
+  const { matches, joinMatch } = useRandomMatch();
   const { user } = useAuth();
   const { guestRestricted, promptLogin } = useGuestPrompt();
-
-  useEffect(() => {
-    if (!p || !id) return;
-    try {
-      const snap = decodeMatchFromInviteQuery(String(p));
-      if (snap.id !== id) return;
-      importMatchFromSnapshot(snap);
-    } catch {
-      /* حمولة غير صالحة */
-    }
-  }, [id, p, importMatchFromSnapshot]);
 
   const match = useMemo(() => matches.find((m) => m.id === id), [matches, id]);
 

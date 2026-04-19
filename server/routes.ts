@@ -15,16 +15,26 @@ import {
   type VenueApiShape,
 } from "./firestoreVenues.ts";
 import { registerPromoRoutes } from "./promoService.ts";
+import { registerPitchRatingsRoute } from "./pitchRatingsRoute.ts";
 import { registerWaylRoutes } from "./waylRoutes.ts";
+import { mergeRedeemerProfiles } from "../lib/voucher-redeemer-profile.ts";
 import {
   adminCreditWallet,
+  adminCreatePrepaidCard,
   adminDebitWallet,
+  adminLoadRedeemerSnapshot,
+  adminRedeemPrepaidCardAndCreditWallet,
   ensureFirebaseAdminApp,
   getWalletAdmin,
   isWalletFirestoreConfigured,
 } from "./walletFirestore.ts";
-const JWT_SECRET = process.env.SESSION_SECRET || "shootha_secret_2026";
-const SUPERVISOR_MASTER_KEY = process.env.SUPERVISOR_MASTER_KEY || "shootha_supervisor_2026";
+import rateLimit from "express-rate-limit";
+import { assertProductionSecurityConfig, getJwtSecret, getSupervisorMasterKey } from "./authSecrets.ts";
+import { issueFirebaseBridgeTicket, consumeFirebaseBridgeTicket } from "./firebaseBridgeTickets.ts";
+
+function firebaseCustomTokenBridgeRequired(): boolean {
+  return process.env.CUSTOM_TOKEN_INSECURE_LEGACY !== "1";
+}
 /** مفتاح إنشاء بطاقات رصيد (يُرسل في الهيدر X-Prepaid-Admin-Key) — عيّنه في الإنتاج */
 const PREPAID_CARD_ADMIN_KEY = process.env.PREPAID_CARD_ADMIN_KEY?.trim() ?? "";
 
@@ -170,7 +180,7 @@ function validateDateOfBirth(value?: string): { ok: true } | { ok: false; messag
 }
 
 function signToken(userId: string, role: string, expiresIn: string = "30d"): string {
-  return jwt.sign({ userId, role }, JWT_SECRET, { expiresIn } as any);
+  return jwt.sign({ userId, role }, getJwtSecret(), { expiresIn } as any);
 }
 
 function safeUser(user: any) {
@@ -216,7 +226,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
   }
   try {
     const token = authHeader.slice(7);
-    const payload = jwt.verify(token, JWT_SECRET) as { userId: string; role: string };
+    const payload = jwt.verify(token, getJwtSecret()) as { userId: string; role: string };
     (req as any).userId = payload.userId;
     (req as any).userRole = payload.role;
     next();
@@ -236,7 +246,7 @@ export function walletAuthMiddleware(req: Request, res: Response, next: NextFunc
   if (authHeader?.startsWith("Bearer ")) {
     try {
       const token = authHeader.slice(7);
-      const payload = jwt.verify(token, JWT_SECRET) as { userId: string; role: string };
+      const payload = jwt.verify(token, getJwtSecret()) as { userId: string; role: string };
       (req as any).userId = payload.userId;
       (req as any).userRole = payload.role;
       return next();
@@ -269,6 +279,52 @@ function ownerGuard(req: Request, res: Response, next: NextFunction) {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  assertProductionSecurityConfig();
+
+  const otpRouteLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 80,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "طلبات كثيرة — حاول لاحقاً" },
+  });
+  const internalBridgeLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 40,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "Too many requests" },
+  });
+
+  app.use("/api/auth/send-otp", otpRouteLimiter);
+  app.use("/api/otp/verify", otpRouteLimiter);
+  app.use("/api/auth/custom-token", otpRouteLimiter);
+  app.use("/api/internal/firebase-bridge-ticket", internalBridgeLimiter);
+
+  /**
+   * خادم OTP المنفصل يستدعي هذا المسار بعد نجاح التحقق (مع FIREBASE_TOKEN_BRIDGE_SECRET)
+   * ليحصل التطبيق على تذكرة تُمرَّر إلى /api/auth/custom-token.
+   */
+  app.post("/api/internal/firebase-bridge-ticket", async (req, res) => {
+    try {
+      const auth = String(req.headers.authorization ?? "");
+      const secret = process.env.FIREBASE_TOKEN_BRIDGE_SECRET?.trim() ?? "";
+      if (!secret || auth !== `Bearer ${secret}`) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      const { phone } = req.body as { phone?: string };
+      const digits = normalizePhone(String(phone ?? ""));
+      const e164 = phoneDigitsToOtpiqE164(digits);
+      if (!/^\+964\d{10}$/.test(e164)) {
+        return res.status(400).json({ message: "رقم غير صالح" });
+      }
+      const ticket = issueFirebaseBridgeTicket(digits);
+      return res.json({ firebaseBridgeTicket: ticket });
+    } catch {
+      return res.status(500).json({ message: "خطأ في الخادم" });
+    }
+  });
+
   app.post("/api/auth/send-otp", async (req, res) => {
     try {
       const { phone } = req.body as { phone: string };
@@ -327,7 +383,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           retryAfterSec: otpCheck.retryAfterSec,
         });
       }
-      return res.json({ success: true, message: "verified" });
+      let firebaseBridgeTicket: string | undefined;
+      try {
+        firebaseBridgeTicket = issueFirebaseBridgeTicket(normalizedPhone);
+      } catch {
+        /* ignore — التطبيق يعتمد على مسار آخر إن فشل الإصدار */
+      }
+      return res.json({
+        success: true,
+        message: "verified",
+        ...(firebaseBridgeTicket ? { firebaseBridgeTicket } : {}),
+      });
     } catch {
       return res.status(500).json({ success: false, error: "خطأ في الخادم" });
     }
@@ -367,11 +433,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
    */
   app.post("/api/auth/custom-token", async (req, res) => {
     try {
-      const { phone } = req.body as { phone?: string };
+      const { phone, bridgeTicket, firebaseBridgeTicket } = req.body as {
+        phone?: string;
+        bridgeTicket?: string;
+        firebaseBridgeTicket?: string;
+      };
       const digits = normalizePhone(phone ?? "");
       const e164 = phoneDigitsToOtpiqE164(digits);
       if (!/^\+964\d{10}$/.test(e164)) {
         return res.status(400).json({ message: "رقم غير صالح" });
+      }
+      const ticketRaw = String(bridgeTicket ?? firebaseBridgeTicket ?? "").trim();
+      if (firebaseCustomTokenBridgeRequired()) {
+        if (!consumeFirebaseBridgeTicket(digits, ticketRaw)) {
+          return res.status(401).json({
+            message:
+              "انتهت صلاحية التحقق. سجّل الدخول مرة أخرى برمز OTP، أو ضبط خادم OTP لاستدعاء /api/internal/firebase-bridge-ticket (راجع FIREBASE_TOKEN_BRIDGE_SECRET و MAIN_API_BRIDGE_BASE_URL).",
+          });
+        }
       }
       if (!isWalletFirestoreConfigured()) {
         return res.status(503).json({ message: "خادم Firebase غير مُضبط" });
@@ -519,28 +598,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = (req as any).userId;
       const { code } = req.body as { code?: string };
-      const result = await storage.redeemPrepaidCard(userId, code ?? "");
-      if (!result.ok) {
-        return res.status(400).json({ message: result.message });
+      if (userId === "guest") {
+        return res.status(400).json({ message: "سجّل الدخول لشحن المحفظة" });
       }
-      if (isWalletFirestoreConfigured() && userId && userId !== "guest") {
+
+      if (isWalletFirestoreConfigured()) {
         try {
-          const norm = normalizePrepaidCardCode(code ?? "");
-          const credit = await adminCreditWallet({
+          const [memUser, fsProf] = await Promise.all([
+            storage.getAuthUserById(userId),
+            adminLoadRedeemerSnapshot(userId),
+          ]);
+          const redeemer = mergeRedeemerProfiles(userId, memUser, fsProf);
+          const out = await adminRedeemPrepaidCardAndCreditWallet({
             userId,
-            amount: result.amount,
-            label: `شحن بطاقة ${norm.slice(0, 4)}…`,
-            idempotencyKey: `redeem:${norm}`,
+            code: code ?? "",
+            redeemer,
           });
-          return res.json({ amount: result.amount, balance: credit.balance });
+          return res.json({ amount: out.amount, balance: out.balance });
         } catch (e: any) {
-          console.error("[wallet/redeem] Firestore credit failed after prepaid OK:", e);
-          return res.status(500).json({
-            message:
-              "تم قبول البطاقة لكن فشل إضافة الرصيد للمحفظة السحابة. تواصل مع الدعم.",
-          });
+          const msg = String(e?.message ?? "");
+          if (msg === "CARD_CODE_TOO_SHORT") {
+            return res.status(400).json({ message: "أدخل رقم البطاقة كاملاً" });
+          }
+          if (msg === "CARD_NOT_FOUND") {
+            return res.status(400).json({ message: "رقم البطاقة غير صحيح أو غير موجود" });
+          }
+          if (msg === "CARD_ALREADY_REDEEMED") {
+            return res.status(400).json({ message: "هذه البطاقة مُستخدمة مسبقاً" });
+          }
+          if (msg === "CARD_EXPIRED") {
+            return res.status(400).json({ message: "انتهت صلاحية هذه القسيمة" });
+          }
+          console.error("[wallet/redeem] Firestore redeem:", e);
+          return res.status(500).json({ message: "تعذر تفعيل البطاقة" });
         }
       }
+
+      const result = await storage.redeemPrepaidCard(userId, code ?? "");
+      if (!result.ok) return res.status(400).json({ message: result.message });
       return res.json({ amount: result.amount, balance: result.balance });
     } catch {
       return res.status(500).json({ message: "خطأ في الخادم" });
@@ -613,7 +708,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).json({ message: "غير مصرح — عيّن PREPAID_CARD_ADMIN_KEY في السيرفر وأرسل X-Prepaid-Admin-Key" });
     }
     try {
-      const { code, amount } = req.body as { code?: string; amount?: number };
+      const { code, amount, expiryDate } = req.body as {
+        code?: string;
+        amount?: number;
+        expiryDate?: string;
+      };
+      if (isWalletFirestoreConfigured()) {
+        try {
+          const out = await adminCreatePrepaidCard({
+            code: code ?? "",
+            amount: amount ?? 0,
+            createdBy: "admin",
+            expiryDate: expiryDate ?? null,
+          });
+          return res.json({
+            message: "تم إنشاء بطاقة الرصيد",
+            code: out.code,
+            amount: out.amount,
+            id: out.id,
+          });
+        } catch (e: any) {
+          const msg = String(e?.message ?? "");
+          if (msg === "CARD_CODE_TOO_SHORT")
+            return res.status(400).json({ message: "رمز البطاقة قصير جداً (6 أحرف على الأقل)" });
+          if (msg === "CARD_AMOUNT_TOO_LOW") return res.status(400).json({ message: "Amount must be at least 1,000 IQD" });
+          if (msg === "CARD_EXISTS") return res.status(409).json({ message: "هذا الرمز مسجّل مسبقاً" });
+          console.error("[admin/prepaid-cards] Firestore create:", e);
+          return res.status(500).json({ message: "فشل إنشاء البطاقة" });
+        }
+      }
       await storage.createPrepaidCard(code ?? "", amount ?? 0);
       return res.json({ message: "تم إنشاء بطاقة الرصيد" });
     } catch (e: any) {
@@ -827,7 +950,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         masterKey: string;
         expiryMinutes?: number;
       };
-      if (masterKey !== SUPERVISOR_MASTER_KEY) {
+      if (masterKey !== getSupervisorMasterKey()) {
         return res.status(403).json({ message: "مفتاح الوصول غير صحيح" });
       }
       const clampedExpiry = Math.min(Math.max(expiryMinutes, 10), 480);
@@ -1035,6 +1158,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const normalizedTime = time.includes(":") ? time : `${String(time).padStart(2, "0")}:00`;
       const hourlyPrice =
         duration > 0 ? Math.round((totalPrice / duration) * 100) / 100 : totalPrice;
+
+      const todayBaghdad = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Baghdad" });
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Baghdad",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).formatToParts(new Date());
+      const bh =
+        parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10) * 60 +
+        parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+      const [th, tm] = normalizedTime.split(":").map((x) => parseInt(x, 10));
+      const startMin = (Number.isFinite(th) ? th : 0) * 60 + (Number.isFinite(tm) ? tm : 0);
+      if (date < todayBaghdad || (date === todayBaghdad && startMin < bh)) {
+        return res.status(400).json({ message: "لا يمكن حجز وقت قد مرّ في هذا اليوم" });
+      }
 
       const allBookings = await storage.getOwnerBookings(resolved.ownerId);
       const dayBookings = allBookings.filter((b) => b.date === date && b.status !== "cancelled");
@@ -1403,7 +1542,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  registerPromoRoutes(app, JWT_SECRET);
+  registerPitchRatingsRoute(app);
+  registerPromoRoutes(app, getJwtSecret());
   registerWaylRoutes(app);
 
   const httpServer = createServer(app);

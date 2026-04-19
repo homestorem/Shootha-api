@@ -16,6 +16,9 @@ if (!API_KEY || !String(API_KEY).trim()) {
 
 const PORT = process.env.PORT || 4000;
 
+const MAIN_API_BRIDGE_BASE_URL = process.env.MAIN_API_BRIDGE_BASE_URL?.trim();
+const FIREBASE_TOKEN_BRIDGE_SECRET = process.env.FIREBASE_TOKEN_BRIDGE_SECRET?.trim();
+
 /** @type {Record<string, { code: string; expires: number }>} */
 const otpStore = {};
 
@@ -323,7 +326,37 @@ app.post("/verify-otp", verifyOtpRateLimit, async (req, res) => {
     clearVerifySecurity(p);
     logEvent("verify_success", { phone: maskPhoneLog(p) });
 
-    return res.json({ success: true, message: "Verified" });
+    let firebaseBridgeTicket = null;
+    if (MAIN_API_BRIDGE_BASE_URL && FIREBASE_TOKEN_BRIDGE_SECRET) {
+      try {
+        const bridgeUrl = `${MAIN_API_BRIDGE_BASE_URL.replace(/\/$/, "")}/api/internal/firebase-bridge-ticket`;
+        const r = await axios.post(
+          bridgeUrl,
+          { phone: p },
+          {
+            headers: {
+              Authorization: `Bearer ${FIREBASE_TOKEN_BRIDGE_SECRET}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 8000,
+            validateStatus: () => true,
+          },
+        );
+        if (r.status >= 200 && r.status < 300 && r.data && typeof r.data.firebaseBridgeTicket === "string") {
+          firebaseBridgeTicket = r.data.firebaseBridgeTicket;
+        } else {
+          logEvent("bridge_ticket_http", { status: r.status });
+        }
+      } catch (e) {
+        logEvent("bridge_ticket_failed", {
+          message: e && e.message ? e.message : String(e),
+        });
+      }
+    }
+
+    const body = { success: true, message: "Verified" };
+    if (firebaseBridgeTicket) body.firebaseBridgeTicket = firebaseBridgeTicket;
+    return res.json(body);
   } catch (err) {
     console.error("verify-otp error:", err);
     return res.status(500).json({

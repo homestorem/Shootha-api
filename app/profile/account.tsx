@@ -144,26 +144,35 @@ color:colors.text
   </>
 ) : null}
 <Pressable
-onPress={()=>setShowDate(true)}
-style={[
-styles.input,
-{
-backgroundColor:colors.card,
-borderColor:colors.border,
-flexDirection:"row",
-alignItems:"center",
-justifyContent:"space-between"
-}
-]}
+  onPress={() => setShowDate(true)}
+  style={[
+    styles.input,
+    {
+      backgroundColor: colors.card,
+      borderColor: colors.border,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+  ]}
 >
-
-<Text style={{color:colors.text,fontFamily:"Cairo_400Regular"}}>
-{`${birthDate.getFullYear()} / ${birthDate.getMonth()+1} / ${birthDate.getDate()}`}
-</Text>
-
-<Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
-
+  <Text style={{ color: colors.text, fontFamily: "Cairo_400Regular" }}>
+    {`${birthDate.getFullYear()} / ${birthDate.getMonth() + 1} / ${birthDate.getDate()}`}
+  </Text>
+  <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
 </Pressable>
+{Platform.OS === "android" && showDate ? (
+  <DateTimePicker
+    value={birthDate}
+    mode="date"
+    display="default"
+    maximumDate={new Date()}
+    onChange={(_e, date) => {
+      setShowDate(false);
+      if (date) setBirthDate(date);
+    }}
+  />
+) : null}
 
 {/* POSITION */}
 
@@ -250,47 +259,35 @@ onPress={()=>router.push("/profile/delete-account")}
 
 </Pressable>
 </ScrollView>
-<Modal
-visible={showDate}
-transparent
-animationType="fade"
->
-
-<View style={styles.modalOverlay}>
-
-<View style={[styles.modalBox,{backgroundColor:colors.card, borderColor: colors.border}]}>
-
-<Text style={[styles.modalTitle,{color:colors.text}]}>
-{t("account.pickBirthDate")}
-</Text>
-<DateTimePicker
-value={birthDate}
-mode="date"
-display="spinner"
-themeVariant={isDark ? "dark" : "light"}
-onChange={(event,date)=>{
-if(date){
-setBirthDate(date)
-}
-}}
-/>
-
-<Pressable
-style={styles.doneBtn}
-onPress={()=>setShowDate(false)}
->
-
-<Text style={styles.doneText}>
-{t("common.done")}
-</Text>
-
-</Pressable>
-
-</View>
-
-</View>
-
-</Modal>
+{Platform.OS !== "android" ? (
+  <Modal visible={showDate} transparent animationType="fade">
+    <View style={styles.modalOverlay}>
+      <View
+        style={[
+          styles.modalBox,
+          { backgroundColor: colors.card, borderColor: colors.border },
+        ]}
+      >
+        <Text style={[styles.modalTitle, { color: colors.text }]}>
+          {t("account.pickBirthDate")}
+        </Text>
+        <DateTimePicker
+          value={birthDate}
+          mode="date"
+          display="spinner"
+          themeVariant={isDark ? "dark" : "light"}
+          maximumDate={new Date()}
+          onChange={(_event, date) => {
+            if (date) setBirthDate(date);
+          }}
+        />
+        <Pressable style={styles.doneBtn} onPress={() => setShowDate(false)}>
+          <Text style={styles.doneText}>{t("common.done")}</Text>
+        </Pressable>
+      </View>
+    </View>
+  </Modal>
+) : null}
 </View>
 
 )

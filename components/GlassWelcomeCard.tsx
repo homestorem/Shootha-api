@@ -2,15 +2,13 @@ import React, { memo } from "react";
 import { View, Text, StyleSheet, Platform } from "react-native";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/context/ThemeContext";
 
 type GlassWelcomeCardProps = {
   userName: string;
-  locationLines: string;
 };
 
-function GlassWelcomeCardInner({ userName, locationLines }: GlassWelcomeCardProps) {
+function GlassWelcomeCardInner({ userName }: GlassWelcomeCardProps) {
   const { isDark, colors } = useTheme();
   const tint = isDark ? "dark" : "light";
   const fallbackBg = isDark ? "rgba(0,0,0,0.38)" : "rgba(255,255,255,0.55)";
@@ -67,12 +65,6 @@ function GlassWelcomeCardInner({ userName, locationLines }: GlassWelcomeCardProp
             {userName}
           </Text>
         </View>
-        <View style={styles.locationRow}>
-          <Ionicons name="location-outline" size={15} color={colors.textSecondary} style={styles.locIcon} />
-          <Text style={[styles.locationText, { color: colors.textSecondary }]} numberOfLines={2}>
-            {locationLines}
-          </Text>
-        </View>
       </View>
     </View>
   );
@@ -116,22 +108,5 @@ const styles = StyleSheet.create({
     fontFamily: "Cairo_700Bold",
     lineHeight: 22,
     width: "100%",
-  },
-  locationRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 6,
-    marginTop: 4,
-  },
-  locIcon: {
-    marginTop: 1,
-    opacity: 0.95,
-  },
-  locationText: {
-    flex: 1,
-    fontSize: 11,
-    fontFamily: "Cairo_400Regular",
-    lineHeight: 15,
-    textAlign: "right",
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -8,20 +8,15 @@ import {
   Platform,
   TextInput,
   Alert,
-  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, router, type Href } from "expo-router";
+import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Colors } from "@/constants/colors";
 import { useBookings, formatDate, formatPrice, Player, type Booking } from "@/context/BookingsContext";
-import { useRandomMatch, type RandomMatchItem } from "@/context/RandomMatchContext";
-import { parseBookingShareParam } from "@/lib/booking-share-payload";
-import type { BookingShareEnvelopeV2 } from "@/lib/booking-share-payload";
 import { useAuth } from "@/context/AuthContext";
 import { useGuestPrompt } from "@/context/GuestPromptContext";
-import { useLang } from "@/context/LanguageContext";
 
 function PlayerRow({ player, onToggle }: { player: Player; onToggle: () => void }) {
   return (
@@ -52,37 +47,13 @@ function PlayerRow({ player, onToggle }: { player: Player; onToggle: () => void 
 }
 
 export default function BookingDetailScreen() {
-  const { id, p } = useLocalSearchParams<{ id: string; p?: string }>();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const { bookings, updateBooking, cancelBooking } = useBookings();
-  const { importMatchFromSnapshot } = useRandomMatch();
   const { isGuest } = useAuth();
   const { promptLogin } = useGuestPrompt();
 
   const booking = bookings.find(b => b.id === id);
-
-  const parsedShare = useMemo(() => {
-    if (!p || !id) return null;
-    return parseBookingShareParam(String(p));
-  }, [p, id]);
-
-  const inviteEnvelope = useMemo(() => {
-    if (!parsedShare || parsedShare.kind !== "v2") return null;
-    if (parsedShare.envelope.bookingId !== String(id)) return null;
-    return parsedShare.envelope;
-  }, [parsedShare, id]);
-
-  const inviteLegacyMatch = useMemo(() => {
-    if (!parsedShare || parsedShare.kind !== "legacy_match") return null;
-    const m = parsedShare.match;
-    if (m.bookingId && m.bookingId !== String(id)) return null;
-    return m;
-  }, [parsedShare, id]);
-
-  useEffect(() => {
-    const m = inviteEnvelope?.match ?? inviteLegacyMatch;
-    if (m) importMatchFromSnapshot(m);
-  }, [inviteEnvelope, inviteLegacyMatch, importMatchFromSnapshot]);
 
   const [newPlayerName, setNewPlayerName] = useState("");
 
@@ -90,48 +61,6 @@ export default function BookingDetailScreen() {
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
   if (!booking) {
-    if (inviteEnvelope) {
-      return (
-        <InviteBookingFromEnvelope
-          envelope={inviteEnvelope}
-          topPadding={topPadding}
-          bottomPadding={bottomPadding}
-          isGuest={isGuest}
-          promptLogin={promptLogin}
-        />
-      );
-    }
-    if (inviteLegacyMatch) {
-      return (
-        <InviteBookingFromShare
-          match={inviteLegacyMatch}
-          topPadding={topPadding}
-          bottomPadding={bottomPadding}
-          isGuest={isGuest}
-          promptLogin={promptLogin}
-        />
-      );
-    }
-    if (p) {
-      return (
-        <View style={[styles.container, { paddingTop: topPadding }]}>
-          <Pressable style={styles.backBtn} onPress={() => router.back()}>
-            <Ionicons name="chevron-forward" size={22} color={Colors.text} />
-          </Pressable>
-          <Text
-            style={{
-              color: Colors.text,
-              textAlign: "center",
-              marginTop: 40,
-              fontFamily: "Cairo_400Regular",
-              paddingHorizontal: 24,
-            }}
-          >
-            رابط الدعوة غير صالح أو البيانات غير مكتملة.
-          </Text>
-        </View>
-      );
-    }
     return (
       <View style={[styles.container, { paddingTop: topPadding }]}>
         <Pressable style={styles.backBtn} onPress={() => router.back()}>
@@ -358,248 +287,6 @@ export default function BookingDetailScreen() {
             <Text style={styles.cancelBtnText}>إلغاء الحجز</Text>
           </Pressable>
         )}
-      </ScrollView>
-    </View>
-  );
-}
-
-function InviteBookingFromEnvelope({
-  envelope,
-  topPadding,
-  bottomPadding,
-  isGuest,
-  promptLogin,
-}: {
-  envelope: BookingShareEnvelopeV2;
-  topPadding: number;
-  bottomPadding: number;
-  isGuest: boolean;
-  promptLogin: () => void;
-}) {
-  const { t } = useLang();
-  const { user } = useAuth();
-  const { addBooking } = useBookings();
-  const { joinMatch } = useRandomMatch();
-  const [saving, setSaving] = useState(false);
-  const fullDate = envelope.date ? formatDate(envelope.date) : "—";
-
-  const runSave = async (withJoin: boolean) => {
-    if (isGuest) {
-      promptLogin();
-      return;
-    }
-    const name = (user?.name ?? "").trim() || t("auth.defaultPlayerName");
-    setSaving(true);
-    try {
-      if (withJoin && envelope.match) {
-        const ok = joinMatch(envelope.match.id, name);
-        if (!ok) {
-          Alert.alert(t("common.warningTitle"), t("booking.inviteMatchFull"));
-          return;
-        }
-      }
-      const newBooking: Booking = {
-        id: "",
-        venueId: envelope.venueId,
-        venueName: envelope.venueName,
-        fieldSize: envelope.fieldSize,
-        date: envelope.date,
-        time: envelope.time,
-        duration: envelope.duration,
-        price: envelope.price,
-        status: "upcoming",
-        players: [{ id: "p_me", name, paid: false }],
-        createdAt: new Date().toISOString(),
-        ...(envelope.match?.id ? { randomMatchId: envelope.match.id } : {}),
-      };
-      const saved = await addBooking(newBooking, {
-        paymentMethod: "invite_share",
-        paymentPaid: false,
-        skipTimeConflictCheck: true,
-      });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace(`/booking/${saved.id}` as Href);
-    } catch (e) {
-      Alert.alert(
-        t("auth.common.error"),
-        e instanceof Error ? e.message : t("booking.inviteSaveFailed"),
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const hasMatch = Boolean(envelope.match);
-
-  return (
-    <View style={[styles.container, { paddingTop: topPadding }]}>
-      <View style={styles.header}>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="chevron-forward" size={22} color={Colors.text} />
-        </Pressable>
-        <Text style={styles.headerTitle}>{t("booking.inviteScreenTitle")}</Text>
-        <View style={{ width: 40 }} />
-      </View>
-
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: bottomPadding + 32 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.inviteBadge}>
-          <Ionicons name="link" size={16} color={Colors.primary} />
-          <Text style={styles.inviteBadgeText}>{t("booking.inviteBadgeV2")}</Text>
-        </View>
-
-        <View style={styles.heroCard}>
-          <Text style={styles.venueName}>{envelope.venueName}</Text>
-          <View style={styles.detailsGrid}>
-            <View style={styles.detailItem}>
-              <Ionicons name="calendar-outline" size={16} color={Colors.textSecondary} />
-              <View>
-                <Text style={styles.detailLabel}>التاريخ</Text>
-                <Text style={styles.detailValue}>{fullDate}</Text>
-              </View>
-            </View>
-            <View style={styles.detailItem}>
-              <Ionicons name="time-outline" size={16} color={Colors.textSecondary} />
-              <View>
-                <Text style={styles.detailLabel}>الوقت</Text>
-                <Text style={styles.detailValue}>{envelope.time}</Text>
-              </View>
-            </View>
-            {envelope.fieldSize ? (
-              <View style={styles.detailItem}>
-                <Ionicons name="football-outline" size={16} color={Colors.textSecondary} />
-                <View>
-                  <Text style={styles.detailLabel}>الملعب</Text>
-                  <Text style={styles.detailValue}>{envelope.fieldSize}</Text>
-                </View>
-              </View>
-            ) : null}
-            <View style={styles.detailItem}>
-              <Ionicons name="cash-outline" size={16} color={Colors.textSecondary} />
-              <View>
-                <Text style={styles.detailLabel}>الإجمالي</Text>
-                <Text style={[styles.detailValue, { color: Colors.primary }]}>
-                  {formatPrice(envelope.price)}
-                </Text>
-              </View>
-            </View>
-          </View>
-          <Text style={styles.inviteHint}>{t("booking.inviteHintV2")}</Text>
-        </View>
-
-        <Pressable
-          style={[styles.inviteJoinBtn, saving && { opacity: 0.75 }]}
-          onPress={() => void runSave(hasMatch)}
-          disabled={saving}
-        >
-          {saving ? (
-            <ActivityIndicator color="#000" />
-          ) : (
-            <>
-              <Ionicons name={hasMatch ? "people" : "bookmark-outline"} size={22} color="#000" />
-              <Text style={styles.inviteJoinBtnText}>
-                {hasMatch ? t("booking.inviteJoinAndSave") : t("booking.inviteSaveOnly")}
-              </Text>
-            </>
-          )}
-        </Pressable>
-      </ScrollView>
-    </View>
-  );
-}
-
-function InviteBookingFromShare({
-  match,
-  topPadding,
-  bottomPadding,
-  isGuest,
-  promptLogin,
-}: {
-  match: RandomMatchItem;
-  topPadding: number;
-  bottomPadding: number;
-  isGuest: boolean;
-  promptLogin: () => void;
-}) {
-  const fullDate = match.date ? formatDate(match.date) : "—";
-  return (
-    <View style={[styles.container, { paddingTop: topPadding }]}>
-      <View style={styles.header}>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="chevron-forward" size={22} color={Colors.text} />
-        </Pressable>
-        <Text style={styles.headerTitle}>بطاقة الحجز</Text>
-        <View style={{ width: 40 }} />
-      </View>
-
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: bottomPadding + 32 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.inviteBadge}>
-          <Ionicons name="link" size={16} color={Colors.primary} />
-          <Text style={styles.inviteBadgeText}>دعوة — مباراة عشوائية</Text>
-        </View>
-
-        <View style={styles.heroCard}>
-          <Text style={styles.venueName}>{match.venueName}</Text>
-          <View style={styles.detailsGrid}>
-            <View style={styles.detailItem}>
-              <Ionicons name="calendar-outline" size={16} color={Colors.textSecondary} />
-              <View>
-                <Text style={styles.detailLabel}>التاريخ</Text>
-                <Text style={styles.detailValue}>{fullDate}</Text>
-              </View>
-            </View>
-            <View style={styles.detailItem}>
-              <Ionicons name="time-outline" size={16} color={Colors.textSecondary} />
-              <View>
-                <Text style={styles.detailLabel}>الوقت</Text>
-                <Text style={styles.detailValue}>{match.time}</Text>
-              </View>
-            </View>
-            {match.fieldSize ? (
-              <View style={styles.detailItem}>
-                <Ionicons name="football-outline" size={16} color={Colors.textSecondary} />
-                <View>
-                  <Text style={styles.detailLabel}>الملعب</Text>
-                  <Text style={styles.detailValue}>{match.fieldSize}</Text>
-                </View>
-              </View>
-            ) : null}
-            <View style={styles.detailItem}>
-              <Ionicons name="cash-outline" size={16} color={Colors.textSecondary} />
-              <View>
-                <Text style={styles.detailLabel}>إجمالي الحجز</Text>
-                <Text style={[styles.detailValue, { color: Colors.primary }]}>{formatPrice(match.totalPrice)}</Text>
-              </View>
-            </View>
-          </View>
-          <Text style={styles.inviteHint}>
-            للانضمام وتسجيل اسمك في قائمة اللاعبين، استخدم الزر أدناه (يُؤخذ الاسم من حسابك في التطبيق).
-          </Text>
-        </View>
-
-        <Pressable
-          style={styles.inviteJoinBtn}
-          onPress={() => {
-            if (isGuest) {
-              promptLogin();
-              return;
-            }
-            router.push({
-              pathname: "/random-match/[id]",
-              params: { id: match.id },
-            });
-          }}
-        >
-          <Ionicons name="enter-outline" size={22} color="#000" />
-          <Text style={styles.inviteJoinBtnText}>الانضمام للمباراة العشوائية</Text>
-        </Pressable>
       </ScrollView>
     </View>
   );
@@ -886,46 +573,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: "Cairo_400Regular",
     marginTop: 2,
-  },
-  inviteBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    alignSelf: "flex-start",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: "rgba(15,157,88,0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(15,157,88,0.3)",
-    marginBottom: 8,
-  },
-  inviteBadgeText: {
-    color: Colors.primary,
-    fontSize: 13,
-    fontFamily: "Cairo_700Bold",
-  },
-  inviteHint: {
-    color: Colors.textSecondary,
-    fontSize: 13,
-    fontFamily: "Cairo_400Regular",
-    lineHeight: 20,
-    marginTop: 12,
-    textAlign: "right",
-  },
-  inviteJoinBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    backgroundColor: Colors.primary,
-    paddingVertical: 16,
-    borderRadius: 16,
-    marginTop: 8,
-  },
-  inviteJoinBtnText: {
-    color: "#000",
-    fontSize: 16,
-    fontFamily: "Cairo_700Bold",
   },
 });

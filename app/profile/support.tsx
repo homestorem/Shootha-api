@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { Colors } from "@/constants/colors";
+import { BRAND_PLATFORMS } from "@/constants/brandPlatforms";
 import { useTheme } from "@/context/ThemeContext";
 import { useLang } from "@/context/LanguageContext";
 
@@ -22,7 +23,7 @@ export default function SupportScreen() {
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
 
   const handleWhatsApp = () => {
-    Linking.openURL("https://wa.me/9647700000000");
+    void Linking.openURL(BRAND_PLATFORMS.whatsapp);
   };
 
   return (
@@ -88,7 +89,7 @@ export default function SupportScreen() {
                 {t("whatsapp")}
               </Text>
               <Text style={[styles.whatsappSub, { color: colors.textSecondary }]}>
-                +964 770 000 0000
+                {BRAND_PLATFORMS.phoneDisplay}
               </Text>
             </View>
             <Ionicons name="chevron-back" size={18} color={colors.textTertiary} />

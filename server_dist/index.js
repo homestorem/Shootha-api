@@ -28,10 +28,11 @@ var ENV_PROJECT_ROOT = projectRoot;
 import express from "express";
 import net from "node:net";
 import cors from "cors";
+import helmet from "helmet";
 
 // server/routes.ts
 import { createServer } from "node:http";
-import * as admin4 from "firebase-admin";
+import * as admin5 from "firebase-admin";
 import axios2 from "axios";
 
 // server/storage.ts
@@ -942,12 +943,144 @@ async function getFirestoreFieldOwnerUserId(venueId) {
 }
 
 // server/promoService.ts
+import * as admin2 from "firebase-admin";
+import * as fs3 from "node:fs";
+import jwt from "jsonwebtoken";
+
+// server/walletFirestore.ts
 import * as admin from "firebase-admin";
 import * as fs2 from "node:fs";
-import jwt from "jsonwebtoken";
-var firestoreInited = false;
-function initAdminApp() {
-  if (firestoreInited) return;
+
+// lib/voucher-lookup.ts
+var VOUCHERS_COLLECTION = "vouchers";
+function buildVoucherLookupCodes(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return [];
+  const upper = s.toUpperCase().replace(/\s+/g, "");
+  const set = /* @__PURE__ */ new Set();
+  if (upper) set.add(upper);
+  const noHyphen = upper.replace(/-/g, "");
+  if (noHyphen && noHyphen !== upper) set.add(noHyphen);
+  if (noHyphen.startsWith("SH") && noHyphen.length > 2 && !upper.includes("-")) {
+    set.add(`SH-${noHyphen.slice(2)}`);
+  }
+  return [...set].filter(Boolean).slice(0, 10);
+}
+function isVoucherExpired(expiryDate) {
+  if (expiryDate == null) return false;
+  const str3 = String(expiryDate).trim();
+  if (!str3) return false;
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(str3) ? `${str3}T23:59:59.999Z` : str3;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return false;
+  return Date.now() > d.getTime();
+}
+function isVoucherMarkedUsed(data) {
+  return data.isUsed === true || data.used === true;
+}
+function readVoucherAmount(data) {
+  return Math.round(Number(data.amount ?? 0));
+}
+function voucherRedeemLedgerId(voucherDocId) {
+  return `redeem:voucher:${String(voucherDocId ?? "").trim()}`;
+}
+
+// lib/voucher-redeemer-profile.ts
+function str2(v, max) {
+  if (v == null) return void 0;
+  const s = String(v).trim();
+  if (!s) return void 0;
+  return s.length > max ? s.slice(0, max) : s;
+}
+function num2(v) {
+  if (v == null || v === "") return void 0;
+  const n = typeof v === "number" ? v : parseFloat(String(v));
+  if (!Number.isFinite(n)) return void 0;
+  return n;
+}
+function mergeRedeemerProfiles(userId, mem, fs5) {
+  const latM = num2(mem?.latitude);
+  const lonM = num2(mem?.longitude);
+  return {
+    userId,
+    phone: str2(mem?.phone ?? fs5.phone, 32) ?? str2(fs5.phone, 32),
+    name: str2(mem?.name ?? fs5.name, 200) ?? str2(fs5.name, 200),
+    email: str2(fs5.email, 320),
+    playerId: str2(fs5.playerId, 64),
+    role: str2(mem?.role ?? fs5.role, 32) ?? str2(fs5.role, 32),
+    latitude: latM ?? fs5.latitude ?? void 0,
+    longitude: lonM ?? fs5.longitude ?? void 0,
+    dateOfBirth: str2(mem?.dateOfBirth ?? fs5.dateOfBirth, 32),
+    gender: str2(mem?.gender ?? fs5.gender, 32),
+    position: str2(fs5.position, 64),
+    profileImage: str2(mem?.profileImage ?? fs5.profileImage, 2e3),
+    inviteCode: str2(fs5.inviteCode, 64),
+    venueName: str2(mem?.venueName, 200) ?? str2(fs5.venueName, 200),
+    areaName: str2(mem?.areaName, 200) ?? str2(fs5.areaName, 200),
+    deviceId: str2(mem?.deviceId, 128) ?? str2(fs5.deviceId, 128),
+    expoPushToken: str2(mem?.expoPublicToken, 500) ?? str2(fs5.expoPushToken, 500)
+  };
+}
+function buildVoucherRedeemerFields(p) {
+  const o = {};
+  const set = (k, v) => {
+    if (v === void 0 || v === null) return;
+    if (typeof v === "string" && v === "") return;
+    o[k] = v;
+  };
+  set("usedByPhone", str2(p.phone, 32));
+  set("usedByName", str2(p.name, 200));
+  set("usedByEmail", str2(p.email, 320));
+  set("usedByPlayerId", str2(p.playerId, 64));
+  set("usedByRole", str2(p.role, 32));
+  set("usedByLatitude", p.latitude ?? void 0);
+  set("usedByLongitude", p.longitude ?? void 0);
+  set("usedByDateOfBirth", str2(p.dateOfBirth, 32));
+  set("usedByGender", str2(p.gender, 32));
+  set("usedByPosition", str2(p.position, 64));
+  set("usedByProfileImage", str2(p.profileImage, 2e3));
+  set("usedByInviteCode", str2(p.inviteCode, 64));
+  set("usedByVenueName", str2(p.venueName, 200));
+  set("usedByAreaName", str2(p.areaName, 200));
+  set("usedByDeviceId", str2(p.deviceId, 128));
+  set("usedByExpoPushToken", str2(p.expoPushToken, 500));
+  return o;
+}
+function buildLedgerRedeemerFields(p) {
+  const o = { redeemerUserId: String(p.userId ?? "").trim() };
+  const set = (k, v) => {
+    if (v === void 0 || v === null) return;
+    if (typeof v === "string" && v === "") return;
+    o[k] = v;
+  };
+  set("redeemerPhone", str2(p.phone, 32));
+  set("redeemerName", str2(p.name, 200));
+  set("redeemerEmail", str2(p.email, 320));
+  set("redeemerPlayerId", str2(p.playerId, 64));
+  set("redeemerRole", str2(p.role, 32));
+  set("redeemerLatitude", p.latitude ?? void 0);
+  set("redeemerLongitude", p.longitude ?? void 0);
+  set("redeemerDateOfBirth", str2(p.dateOfBirth, 32));
+  set("redeemerGender", str2(p.gender, 32));
+  set("redeemerPosition", str2(p.position, 64));
+  set("redeemerProfileImage", str2(p.profileImage, 2e3));
+  set("redeemerInviteCode", str2(p.inviteCode, 64));
+  set("redeemerVenueName", str2(p.venueName, 200));
+  set("redeemerAreaName", str2(p.areaName, 200));
+  set("redeemerDeviceId", str2(p.deviceId, 128));
+  set("redeemerExpoPushToken", str2(p.expoPushToken, 500));
+  return o;
+}
+
+// server/walletFirestore.ts
+var WALLET_LEDGER_COLLECTION = "walletTransactions";
+var adminInitialized = false;
+function ensureAdminApp() {
+  if (admin.apps.length > 0) {
+    adminInitialized = true;
+    return;
+  }
+  if (adminInitialized) return;
   const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
   const pathEnv = process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim();
   if (pathEnv && fs2.existsSync(pathEnv)) {
@@ -959,26 +1092,295 @@ function initAdminApp() {
     });
   } else {
     throw new Error(
+      "FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_SERVICE_ACCOUNT_PATH required for Firestore wallet"
+    );
+  }
+  adminInitialized = true;
+}
+function ensureFirebaseAdminApp() {
+  ensureAdminApp();
+}
+function isValidServiceAccountJson(raw) {
+  try {
+    const o = JSON.parse(raw);
+    return o.type === "service_account" && typeof o.private_key === "string" && o.private_key.includes("BEGIN PRIVATE KEY") && typeof o.client_email === "string";
+  } catch {
+    return false;
+  }
+}
+function isWalletFirestoreConfigured() {
+  const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
+  const pathEnv = process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim();
+  if (pathEnv && fs2.existsSync(pathEnv)) {
+    try {
+      const raw = fs2.readFileSync(pathEnv, "utf8");
+      return isValidServiceAccountJson(raw);
+    } catch {
+      return false;
+    }
+  }
+  if (!json) return false;
+  return isValidServiceAccountJson(json);
+}
+function getDb() {
+  ensureAdminApp();
+  return admin.firestore();
+}
+function txSnapToRow(id, d) {
+  const ts = d.timestamp;
+  const createdAt = ts && typeof ts.toDate === "function" ? ts.toDate().toISOString() : (/* @__PURE__ */ new Date()).toISOString();
+  const raw = String(d.type ?? "debit").toLowerCase();
+  const uiType = raw === "credit" || raw === "redeem" ? "redeem" : "payment";
+  const uid = String(d.userId ?? d.walletUserId ?? "").trim();
+  return {
+    id,
+    userId: uid,
+    amount: Math.round(Number(d.amount ?? 0)),
+    type: uiType,
+    balanceAfter: Math.round(Number(d.balanceAfter ?? 0)),
+    label: String(d.label ?? ""),
+    createdAt,
+    status: String(d.status ?? "completed"),
+    bookingId: d.bookingId ?? null
+  };
+}
+async function fetchLedgerForUser(db, userId, lim) {
+  const wRef = db.collection("wallets").doc(userId);
+  let rows = [];
+  try {
+    const qs = await db.collection(WALLET_LEDGER_COLLECTION).where("userId", "==", userId).orderBy("timestamp", "desc").limit(lim).get();
+    rows = qs.docs.map((docSnap) => txSnapToRow(docSnap.id, docSnap.data()));
+  } catch {
+    const all = await db.collection(WALLET_LEDGER_COLLECTION).where("userId", "==", userId).limit(lim * 4).get();
+    rows = all.docs.map((docSnap) => txSnapToRow(docSnap.id, docSnap.data())).sort((a, b) => a.createdAt < b.createdAt ? 1 : -1).slice(0, lim);
+  }
+  try {
+    const legacy = await wRef.collection("transactions").orderBy("timestamp", "desc").limit(lim).get();
+    const legacyRows = legacy.docs.map((docSnap) => txSnapToRow(docSnap.id, docSnap.data()));
+    const byId = /* @__PURE__ */ new Map();
+    for (const r of legacyRows) byId.set(r.id, { ...r, userId: r.userId || userId });
+    for (const r of rows) byId.set(r.id, r);
+    return Array.from(byId.values()).sort((a, b) => a.createdAt < b.createdAt ? 1 : -1).slice(0, lim);
+  } catch {
+    return rows;
+  }
+}
+async function getWalletAdmin(userId, limit) {
+  const db = getDb();
+  const wRef = db.collection("wallets").doc(userId);
+  const wSnap = await wRef.get();
+  const balance = wSnap.exists ? Math.round(Number(wSnap.data()?.user_balance ?? 0)) : 0;
+  const lim = Math.min(100, Math.max(1, limit));
+  const transactions = await fetchLedgerForUser(db, userId, lim);
+  return { balance, transactions };
+}
+async function adminDebitWallet(opts) {
+  const { userId, amount, bookingId, label, idempotencyKey } = opts;
+  const uid = String(userId ?? "").trim();
+  const key = String(idempotencyKey ?? "").trim();
+  if (!uid || !key) throw new Error("\u0645\u0639\u0631\u0651\u0641 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u0623\u0648 \u0645\u0641\u062A\u0627\u062D \u0627\u0644\u062A\u0632\u0627\u0645\u0646 \u0646\u0627\u0642\u0635");
+  const amt = Math.round(Number(amount));
+  if (!Number.isFinite(amt) || amt <= 0) throw new Error("\u0627\u0644\u0645\u0628\u0644\u063A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D");
+  const db = getDb();
+  const wRef = db.collection("wallets").doc(uid);
+  const ledgerRef = db.collection(WALLET_LEDGER_COLLECTION).doc(key);
+  return db.runTransaction(async (tx) => {
+    const wSnap = await tx.get(wRef);
+    const ledgerSnap = await tx.get(ledgerRef);
+    if (ledgerSnap.exists) {
+      const bal = wSnap.exists ? Math.round(Number(wSnap.data()?.user_balance ?? 0)) : 0;
+      return { balance: bal, transactionId: key, duplicate: true };
+    }
+    const balance = wSnap.exists ? Math.round(Number(wSnap.data()?.user_balance ?? 0)) : 0;
+    if (balance < amt) {
+      throw new Error("INSUFFICIENT_FUNDS");
+    }
+    const next = balance - amt;
+    const ts = admin.firestore.FieldValue.serverTimestamp();
+    if (!wSnap.exists) {
+      tx.set(wRef, { user_balance: next, updatedAt: ts });
+    } else {
+      tx.update(wRef, { user_balance: next, updatedAt: ts });
+    }
+    tx.set(ledgerRef, {
+      transactionId: key,
+      userId: uid,
+      walletUserId: uid,
+      amount: amt,
+      type: "debit",
+      status: "completed",
+      timestamp: ts,
+      bookingId: bookingId ?? null,
+      label: typeof label === "string" ? label : "",
+      balanceAfter: next
+    });
+    return { balance: next, transactionId: key, duplicate: false };
+  });
+}
+async function adminCreatePrepaidCard(opts) {
+  const raw = String(opts.code ?? "").trim();
+  const displayCode = raw.toUpperCase().replace(/\s+/g, "");
+  const compact = normalizePrepaidCardCode(raw);
+  const amount = Math.floor(Number(opts.amount));
+  if (compact.length < 6) throw new Error("CARD_CODE_TOO_SHORT");
+  if (!Number.isFinite(amount) || amount < 1e3) throw new Error("CARD_AMOUNT_TOO_LOW");
+  const db = getDb();
+  const candidates = buildVoucherLookupCodes(raw);
+  if (candidates.length > 0) {
+    const dup = await db.collection(VOUCHERS_COLLECTION).where("code", "in", candidates.slice(0, 10)).limit(1).get();
+    if (!dup.empty) throw new Error("CARD_EXISTS");
+  }
+  const ts = admin.firestore.FieldValue.serverTimestamp();
+  const createdBy = String(opts.createdBy ?? "").trim() || null;
+  const expiryDate = String(opts.expiryDate ?? "").trim();
+  const row = {
+    amount,
+    code: displayCode || raw,
+    createdAt: ts,
+    expiryDate: expiryDate || "",
+    isUsed: false,
+    used: false,
+    ...createdBy ? { createdBy } : {}
+  };
+  const ref = await db.collection(VOUCHERS_COLLECTION).add(row);
+  return { code: displayCode || raw, amount, id: ref.id };
+}
+async function adminLoadRedeemerSnapshot(userId) {
+  const uid = String(userId ?? "").trim();
+  const empty = { userId: uid };
+  if (!uid) return empty;
+  try {
+    const db = getDb();
+    const snap = await db.collection("users").doc(uid).get();
+    if (!snap.exists) return empty;
+    const d = snap.data();
+    const getS = (k) => typeof d[k] === "string" ? String(d[k]).trim() : "";
+    const n = (x) => {
+      const v = typeof x === "number" ? x : parseFloat(String(x ?? ""));
+      return Number.isFinite(v) ? v : void 0;
+    };
+    return {
+      userId: uid,
+      phone: getS("phone") || void 0,
+      name: getS("name") || void 0,
+      email: getS("email") || void 0,
+      playerId: getS("playerId") || void 0,
+      role: getS("role") || void 0,
+      dateOfBirth: getS("dateOfBirth") || void 0,
+      gender: getS("gender") || void 0,
+      position: getS("position") || void 0,
+      profileImage: getS("profileImage") || getS("image") || void 0,
+      inviteCode: getS("inviteCode") || void 0,
+      latitude: n(d.latitude ?? d.userLat ?? d.lat),
+      longitude: n(d.longitude ?? d.userLon ?? d.lon)
+    };
+  } catch {
+    return empty;
+  }
+}
+async function adminRedeemPrepaidCardAndCreditWallet(opts) {
+  const uid = String(opts.userId ?? "").trim();
+  const compact = normalizePrepaidCardCode(opts.code ?? "");
+  if (!uid || uid === "guest") throw new Error("AUTH_REQUIRED");
+  if (compact.length < 6) throw new Error("CARD_CODE_TOO_SHORT");
+  const db = getDb();
+  const lookupCodes = buildVoucherLookupCodes(opts.code ?? "");
+  if (lookupCodes.length === 0) throw new Error("CARD_NOT_FOUND");
+  const found = await db.collection(VOUCHERS_COLLECTION).where("code", "in", lookupCodes.slice(0, 10)).limit(5).get();
+  if (found.empty) throw new Error("CARD_NOT_FOUND");
+  const voucherRef = found.docs[0].ref;
+  const wRef = db.collection("wallets").doc(uid);
+  const ledgerId = voucherRedeemLedgerId(voucherRef.id);
+  const ledgerRef = db.collection(WALLET_LEDGER_COLLECTION).doc(ledgerId);
+  return db.runTransaction(async (tx) => {
+    const [vSnap, wSnap, ledgerSnap] = await Promise.all([
+      tx.get(voucherRef),
+      tx.get(wRef),
+      tx.get(ledgerRef)
+    ]);
+    const balance = wSnap.exists ? Math.round(Number(wSnap.data()?.user_balance ?? 0)) : 0;
+    if (ledgerSnap.exists) {
+      const amt2 = Math.round(Number(ledgerSnap.data()?.amount ?? 0));
+      return { amount: amt2, balance, duplicate: true };
+    }
+    if (!vSnap.exists) throw new Error("CARD_NOT_FOUND");
+    const v = vSnap.data();
+    if (isVoucherMarkedUsed(v)) throw new Error("CARD_ALREADY_REDEEMED");
+    if (isVoucherExpired(v.expiryDate)) throw new Error("CARD_EXPIRED");
+    const amt = readVoucherAmount(v);
+    if (!Number.isFinite(amt) || amt <= 0) throw new Error("CARD_INVALID_AMOUNT");
+    const next = balance + amt;
+    const ts = admin.firestore.FieldValue.serverTimestamp();
+    const codeLabel = String(v.code ?? compact).slice(0, 12);
+    const redeemer = opts.redeemer && String(opts.redeemer.userId ?? "").trim() === uid ? opts.redeemer : null;
+    const ledgerExtra = redeemer ? buildLedgerRedeemerFields(redeemer) : {};
+    const voucherExtra = redeemer ? buildVoucherRedeemerFields(redeemer) : {};
+    tx.set(wRef, { user_balance: next, updatedAt: ts }, { merge: true });
+    tx.set(ledgerRef, {
+      transactionId: ledgerId,
+      userId: uid,
+      walletUserId: uid,
+      amount: amt,
+      type: "credit",
+      status: "completed",
+      timestamp: ts,
+      bookingId: null,
+      label: `\u0634\u062D\u0646 \u0642\u0633\u064A\u0645\u0629 ${codeLabel}`,
+      balanceAfter: next,
+      source: "voucher",
+      voucherId: voucherRef.id,
+      voucherCode: String(v.code ?? "").trim() || compact,
+      ...ledgerExtra
+    });
+    tx.set(
+      voucherRef,
+      {
+        isUsed: true,
+        used: true,
+        usedAt: ts,
+        usedBy: uid,
+        redeemedAmount: amt,
+        ...voucherExtra
+      },
+      { merge: true }
+    );
+    return { amount: amt, balance: next, duplicate: false };
+  });
+}
+
+// server/promoService.ts
+var firestoreInited = false;
+function initAdminApp() {
+  if (firestoreInited) return;
+  const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
+  const pathEnv = process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim();
+  if (pathEnv && fs3.existsSync(pathEnv)) {
+    const c = JSON.parse(fs3.readFileSync(pathEnv, "utf8"));
+    admin2.initializeApp({ credential: admin2.credential.cert(c) });
+  } else if (json) {
+    admin2.initializeApp({
+      credential: admin2.credential.cert(JSON.parse(json))
+    });
+  } else {
+    throw new Error(
       "FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_SERVICE_ACCOUNT_PATH required for promo APIs"
     );
   }
   firestoreInited = true;
 }
 function isPromoFirestoreConfigured() {
-  const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
-  const pathEnv = process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim();
-  return Boolean(json || pathEnv && fs2.existsSync(pathEnv));
+  return isWalletFirestoreConfigured();
 }
 function getPromoDb() {
   initAdminApp();
-  return admin.firestore();
+  return admin2.firestore();
 }
 function normCode(raw) {
   return String(raw ?? "").trim().toUpperCase().replace(/\s+/g, "");
 }
 function tsToMs(v) {
   if (v == null) return null;
-  if (v instanceof admin.firestore.Timestamp) return v.toMillis();
+  if (v instanceof admin2.firestore.Timestamp) return v.toMillis();
   if (typeof v === "object" && v !== null && "toMillis" in v && typeof v.toMillis === "function") {
     return v.toMillis();
   }
@@ -1292,16 +1694,16 @@ async function runPromoRedeem(validationToken, bookingId, secret) {
         bookingAmount: payload.bookingAmount,
         discountAmount: payload.discountAmount,
         finalPrice: payload.finalPrice,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: admin2.firestore.FieldValue.serverTimestamp()
       });
       tx.update(promoRef, {
-        usedCount: admin.firestore.FieldValue.increment(1),
-        totalBookings: admin.firestore.FieldValue.increment(1),
-        totalRevenue: admin.firestore.FieldValue.increment(payload.finalPrice),
-        totalDiscountGiven: admin.firestore.FieldValue.increment(
+        usedCount: admin2.firestore.FieldValue.increment(1),
+        totalBookings: admin2.firestore.FieldValue.increment(1),
+        totalRevenue: admin2.firestore.FieldValue.increment(payload.finalPrice),
+        totalDiscountGiven: admin2.firestore.FieldValue.increment(
           payload.discountAmount
         ),
-        lastUsedAt: admin.firestore.FieldValue.serverTimestamp()
+        lastUsedAt: admin2.firestore.FieldValue.serverTimestamp()
       });
       tx.update(bookingRef, {
         promoCode: payload.code,
@@ -1353,8 +1755,204 @@ function registerPromoRoutes(app2, jwtSecret) {
   });
 }
 
-// server/waylRoutes.ts
+// server/pitchRatingsRoute.ts
+import { createHash } from "node:crypto";
 import * as admin3 from "firebase-admin";
+var RATINGS_COLLECTION = "\u0627\u0644\u062A\u0642\u064A\u064A\u0645\u0627\u062A";
+var LEADERBOARD_STATS = "leaderboardPlayerStats";
+var BAGHDAD_UTC_OFFSET_H = 3;
+function wallBaghdadStartUtcMs(date, time) {
+  const [y, mo, d] = date.split("-").map((x) => parseInt(x, 10));
+  const [th, tm] = time.split(":").map((x) => parseInt(x, 10));
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return NaN;
+  const hh = Number.isFinite(th) ? th : 0;
+  const mm = Number.isFinite(tm) ? tm : 0;
+  return Date.UTC(y, mo - 1, d, hh - BAGHDAD_UTC_OFFSET_H, mm, 0, 0);
+}
+function sessionEndedBaghdad(date, startTime, durationH, nowMs) {
+  const dur = Number(durationH);
+  if (!Number.isFinite(dur) || dur <= 0) return false;
+  const startMs = wallBaghdadStartUtcMs(date, startTime);
+  if (!Number.isFinite(startMs)) return false;
+  const endMs = startMs + Math.max(0.25, dur) * 60 * 60 * 1e3;
+  return nowMs >= endMs;
+}
+function playerStatDocId(name) {
+  const raw = name.trim().replace(/\s+/g, " ").normalize("NFC").slice(0, 200);
+  const h = createHash("sha256").update(raw, "utf8").digest("hex").slice(0, 24);
+  return `p_${h}`;
+}
+function computePlayerPoints(stars, goals) {
+  const s = Math.min(5, Math.max(1, Math.round(stars)));
+  const g = Math.min(99, Math.max(0, Math.round(goals)));
+  return s * 15 + g * 5;
+}
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+async function verifyCallerOwnsRater(req, raterUserId) {
+  const h = String(req.headers.authorization ?? "");
+  const m = /^Bearer\s+(.+)$/i.exec(h.trim());
+  if (!m) return false;
+  try {
+    const dec = await admin3.auth().verifyIdToken(m[1]);
+    if (dec.uid === raterUserId) return true;
+    const e164 = String(dec.e164 ?? "").trim();
+    if (e164 && e164 === raterUserId) return true;
+    const playerId = String(dec.playerId ?? "").trim();
+    if (playerId && playerId === raterUserId) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+function registerPitchRatingsRoute(app2) {
+  app2.post("/api/pitch-ratings", async (req, res) => {
+    try {
+      ensureFirebaseAdminApp();
+    } catch {
+      return res.status(503).json({ message: "\u062E\u0627\u062F\u0645 \u0627\u0644\u062A\u0642\u064A\u064A\u0645 \u063A\u064A\u0631 \u0645\u0647\u064A\u0623 (Firebase Admin)" });
+    }
+    const body = req.body;
+    const bookingId = String(body.bookingId ?? "").trim();
+    const raterUserId = String(body.raterUserId ?? "").trim();
+    const venueId = String(body.venueId ?? "").trim();
+    const venueName = String(body.venueName ?? "").trim().slice(0, 200);
+    const venueStars = Number(body.venueStars);
+    const venueFeedback = String(body.venueFeedback ?? "").trim().slice(0, 2e3);
+    const playersRaw = Array.isArray(body.players) ? body.players : [];
+    if (!bookingId || !raterUserId || !venueId) {
+      return res.status(400).json({ message: "\u0628\u064A\u0627\u0646\u0627\u062A \u0646\u0627\u0642\u0635\u0629 (\u0627\u0644\u062D\u062C\u0632 \u0623\u0648 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u0623\u0648 \u0627\u0644\u0645\u0644\u0639\u0628)" });
+    }
+    const authOk = await verifyCallerOwnsRater(req, raterUserId);
+    if (!authOk) {
+      return res.status(401).json({ message: "\u064A\u062C\u0628 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062F\u062E\u0648\u0644 \u0623\u0648 \u0623\u0646 \u0627\u0644\u062D\u0633\u0627\u0628 \u0644\u0627 \u064A\u0637\u0627\u0628\u0642 \u0627\u0644\u0645\u0642\u064A\u0651\u0645" });
+    }
+    if (!Number.isFinite(venueStars) || venueStars < 1 || venueStars > 5) {
+      return res.status(400).json({ message: "\u062A\u0642\u064A\u064A\u0645 \u0627\u0644\u0645\u0644\u0639\u0628 \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0628\u064A\u0646 1 \u0648 5" });
+    }
+    const players = [];
+    for (const p of playersRaw.slice(0, 24)) {
+      const name = String(p.name ?? "").trim();
+      if (!name) continue;
+      const stars = Number(p.stars);
+      const goals = Number(p.goals ?? 0);
+      if (!Number.isFinite(stars) || stars < 1 || stars > 5) {
+        return res.status(400).json({ message: `\u062A\u0642\u064A\u064A\u0645 \u063A\u064A\u0631 \u0635\u0627\u0644\u062D \u0644\u0644\u0627\u0639\u0628: ${name.slice(0, 40)}` });
+      }
+      if (!Number.isFinite(goals) || goals < 0 || goals > 99) {
+        return res.status(400).json({ message: `\u0639\u062F\u062F \u0627\u0644\u0623\u0647\u062F\u0627\u0641 \u063A\u064A\u0631 \u0635\u0627\u0644\u062D \u0644\u0644\u0627\u0639\u0628: ${name.slice(0, 40)}` });
+      }
+      players.push({ name: name.slice(0, 80), stars: Math.round(stars), goals: Math.round(goals) });
+    }
+    const db = admin3.firestore();
+    const bookingRef = db.collection("bookings").doc(bookingId);
+    const ratingRef = db.collection(RATINGS_COLLECTION).doc(bookingId);
+    const fieldRef = db.collection("fields").doc(venueId);
+    try {
+      await db.runTransaction(async (tx) => {
+        const [bSnap, rSnap, fSnap] = await Promise.all([
+          tx.get(bookingRef),
+          tx.get(ratingRef),
+          tx.get(fieldRef)
+        ]);
+        if (!bSnap.exists) {
+          throw Object.assign(new Error("BOOKING_NOT_FOUND"), { code: 404 });
+        }
+        if (rSnap.exists) {
+          throw Object.assign(new Error("ALREADY_RATED"), { code: 409 });
+        }
+        const b = bSnap.data();
+        if (String(b.playerUserId ?? "").trim() !== raterUserId) {
+          throw Object.assign(new Error("FORBIDDEN"), { code: 403 });
+        }
+        if (String(b.venueId ?? "").trim() !== venueId) {
+          throw Object.assign(new Error("VENUE_MISMATCH"), { code: 400 });
+        }
+        if (String(b.status ?? "") === "cancelled") {
+          throw Object.assign(new Error("CANCELLED"), { code: 400 });
+        }
+        const date = String(b.date ?? "");
+        const startTime = String(b.startTime ?? "").includes(":") ? String(b.startTime) : `${String(b.startTime ?? "0").padStart(2, "0")}:00`;
+        const duration = Number(b.duration);
+        if (!sessionEndedBaghdad(date, startTime, duration, Date.now())) {
+          throw Object.assign(new Error("SESSION_NOT_ENDED"), { code: 400 });
+        }
+        tx.set(ratingRef, {
+          bookingId,
+          raterUserId,
+          venueId,
+          venueName: venueName || String(b.venueName ?? "").trim().slice(0, 200),
+          venueStars: Math.round(venueStars),
+          venueFeedback,
+          players,
+          bookingDate: date,
+          bookingStartTime: startTime,
+          bookingDurationHours: duration,
+          createdAt: admin3.firestore.FieldValue.serverTimestamp()
+        });
+        const prevC = fSnap.exists ? Number(fSnap.data()?.reviewCount ?? 0) : 0;
+        const prevR = fSnap.exists ? Number(fSnap.data()?.rating ?? 0) : 0;
+        const newC = prevC + 1;
+        const newR = newC === 1 ? venueStars : (prevR * prevC + venueStars) / newC;
+        tx.set(
+          fieldRef,
+          {
+            rating: round2(newR),
+            reviewCount: newC
+          },
+          { merge: true }
+        );
+        for (const p of players) {
+          const pid = playerStatDocId(p.name);
+          const pref = db.collection(LEADERBOARD_STATS).doc(pid);
+          const pts = computePlayerPoints(p.stars, p.goals);
+          tx.set(
+            pref,
+            {
+              displayName: p.name,
+              totalPoints: admin3.firestore.FieldValue.increment(pts),
+              matchesRated: admin3.firestore.FieldValue.increment(1),
+              totalGoals: admin3.firestore.FieldValue.increment(p.goals),
+              updatedAt: admin3.firestore.FieldValue.serverTimestamp()
+            },
+            { merge: true }
+          );
+        }
+        tx.set(
+          bookingRef,
+          {
+            postMatchRatingAt: admin3.firestore.FieldValue.serverTimestamp(),
+            postMatchRatingVenueStars: Math.round(venueStars)
+          },
+          { merge: true }
+        );
+      });
+      return res.json({ ok: true });
+    } catch (e) {
+      const err = e;
+      if (err.code === 404) return res.status(404).json({ message: "\u0627\u0644\u062D\u062C\u0632 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
+      if (err.code === 409) return res.status(409).json({ message: "\u062A\u0645 \u0625\u0631\u0633\u0627\u0644 \u062A\u0642\u064A\u064A\u0645 \u0647\u0630\u0627 \u0627\u0644\u062D\u062C\u0632 \u0645\u0633\u0628\u0642\u0627\u064B" });
+      if (err.code === 403) return res.status(403).json({ message: "\u063A\u064A\u0631 \u0645\u0635\u0631\u062D \u0628\u062A\u0642\u064A\u064A\u0645 \u0647\u0630\u0627 \u0627\u0644\u062D\u062C\u0632" });
+      if (err.code === 400) {
+        if (err.message === "VENUE_MISMATCH") {
+          return res.status(400).json({ message: "\u0645\u0639\u0631\u0651\u0641 \u0627\u0644\u0645\u0644\u0639\u0628 \u0644\u0627 \u064A\u0637\u0627\u0628\u0642 \u0627\u0644\u062D\u062C\u0632" });
+        }
+        if (err.message === "CANCELLED") {
+          return res.status(400).json({ message: "\u0644\u0627 \u064A\u0645\u0643\u0646 \u062A\u0642\u064A\u064A\u0645 \u062D\u062C\u0632 \u0645\u0644\u063A\u0649" });
+        }
+        if (err.message === "SESSION_NOT_ENDED") {
+          return res.status(400).json({ message: "\u0644\u0645 \u064A\u0646\u062A\u0647\u0650 \u0648\u0642\u062A \u0627\u0644\u062D\u062C\u0632 \u0628\u0639\u062F" });
+        }
+      }
+      console.error("[pitch-ratings]", e);
+      return res.status(500).json({ message: "\u062A\u0639\u0630\u0631 \u062D\u0641\u0638 \u0627\u0644\u062A\u0642\u064A\u064A\u0645" });
+    }
+  });
+}
+
+// server/waylRoutes.ts
+import * as admin4 from "firebase-admin";
 
 // server/waylService.ts
 import axios from "axios";
@@ -1579,7 +2177,7 @@ var WaylService = class {
       if (response.status >= 200 && response.status < 300) {
         const normalized = this.normalizePaymentStatus(response.data);
         return {
-          paid: normalized === "PAID",
+          paid: isWaylPaidStatus(normalized),
           status: normalized,
           raw: response.data
         };
@@ -1618,10 +2216,25 @@ var WaylService = class {
   normalizePaymentStatus(data) {
     const obj = data ?? {};
     const nestedData = obj.data && typeof obj.data === "object" && !Array.isArray(obj.data) ? obj.data : void 0;
-    const statusRaw = obj.payment_status ?? obj.paymentStatus ?? obj.status ?? nestedData?.payment_status ?? nestedData?.paymentStatus ?? nestedData?.status ?? "";
+    const statusRaw = obj.payment_status ?? obj.paymentStatus ?? obj.status ?? obj.state ?? obj.transaction_status ?? obj.transactionStatus ?? nestedData?.payment_status ?? nestedData?.paymentStatus ?? nestedData?.status ?? nestedData?.state ?? "";
     return String(statusRaw).trim().toUpperCase();
   }
 };
+var WAYL_SUCCESS_STATUSES = /* @__PURE__ */ new Set([
+  "PAID",
+  "PAID_OUT",
+  "APPROVED",
+  "SUCCESS",
+  "SUCCEEDED",
+  "COMPLETED",
+  "COMPLETE",
+  "CAPTURED",
+  "SETTLED",
+  "CONFIRMED"
+]);
+function isWaylPaidStatus(normalizedUpper) {
+  return WAYL_SUCCESS_STATUSES.has(String(normalizedUpper ?? "").trim().toUpperCase());
+}
 function mapWaylException(error) {
   if (error instanceof WaylHttpError) return error;
   if (axios.isAxiosError(error)) {
@@ -1636,177 +2249,6 @@ function mapWaylException(error) {
     return new WaylHttpError(500, error.message);
   }
   return new WaylHttpError(500, "Unexpected Wayl integration error");
-}
-
-// server/walletFirestore.ts
-import * as admin2 from "firebase-admin";
-import * as fs3 from "node:fs";
-var WALLET_LEDGER_COLLECTION = "walletTransactions";
-var adminInitialized = false;
-function ensureAdminApp() {
-  if (admin2.apps.length > 0) {
-    adminInitialized = true;
-    return;
-  }
-  if (adminInitialized) return;
-  const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
-  const pathEnv = process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim();
-  if (pathEnv && fs3.existsSync(pathEnv)) {
-    const c = JSON.parse(fs3.readFileSync(pathEnv, "utf8"));
-    admin2.initializeApp({ credential: admin2.credential.cert(c) });
-  } else if (json) {
-    admin2.initializeApp({
-      credential: admin2.credential.cert(JSON.parse(json))
-    });
-  } else {
-    throw new Error(
-      "FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_SERVICE_ACCOUNT_PATH required for Firestore wallet"
-    );
-  }
-  adminInitialized = true;
-}
-function ensureFirebaseAdminApp() {
-  ensureAdminApp();
-}
-function isWalletFirestoreConfigured() {
-  const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
-  const pathEnv = process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim();
-  return Boolean(json || pathEnv && fs3.existsSync(pathEnv));
-}
-function getDb() {
-  ensureAdminApp();
-  return admin2.firestore();
-}
-function txSnapToRow(id, d) {
-  const ts = d.timestamp;
-  const createdAt = ts && typeof ts.toDate === "function" ? ts.toDate().toISOString() : (/* @__PURE__ */ new Date()).toISOString();
-  const raw = String(d.type ?? "debit").toLowerCase();
-  const uiType = raw === "credit" || raw === "redeem" ? "redeem" : "payment";
-  const uid = String(d.userId ?? d.walletUserId ?? "").trim();
-  return {
-    id,
-    userId: uid,
-    amount: Math.round(Number(d.amount ?? 0)),
-    type: uiType,
-    balanceAfter: Math.round(Number(d.balanceAfter ?? 0)),
-    label: String(d.label ?? ""),
-    createdAt,
-    status: String(d.status ?? "completed"),
-    bookingId: d.bookingId ?? null
-  };
-}
-async function fetchLedgerForUser(db, userId, lim) {
-  const wRef = db.collection("wallets").doc(userId);
-  let rows = [];
-  try {
-    const qs = await db.collection(WALLET_LEDGER_COLLECTION).where("userId", "==", userId).orderBy("timestamp", "desc").limit(lim).get();
-    rows = qs.docs.map((docSnap) => txSnapToRow(docSnap.id, docSnap.data()));
-  } catch {
-    const all = await db.collection(WALLET_LEDGER_COLLECTION).where("userId", "==", userId).limit(lim * 4).get();
-    rows = all.docs.map((docSnap) => txSnapToRow(docSnap.id, docSnap.data())).sort((a, b) => a.createdAt < b.createdAt ? 1 : -1).slice(0, lim);
-  }
-  try {
-    const legacy = await wRef.collection("transactions").orderBy("timestamp", "desc").limit(lim).get();
-    const legacyRows = legacy.docs.map((docSnap) => txSnapToRow(docSnap.id, docSnap.data()));
-    const byId = /* @__PURE__ */ new Map();
-    for (const r of legacyRows) byId.set(r.id, { ...r, userId: r.userId || userId });
-    for (const r of rows) byId.set(r.id, r);
-    return Array.from(byId.values()).sort((a, b) => a.createdAt < b.createdAt ? 1 : -1).slice(0, lim);
-  } catch {
-    return rows;
-  }
-}
-async function getWalletAdmin(userId, limit) {
-  const db = getDb();
-  const wRef = db.collection("wallets").doc(userId);
-  const wSnap = await wRef.get();
-  const balance = wSnap.exists ? Math.round(Number(wSnap.data()?.user_balance ?? 0)) : 0;
-  const lim = Math.min(100, Math.max(1, limit));
-  const transactions = await fetchLedgerForUser(db, userId, lim);
-  return { balance, transactions };
-}
-async function adminDebitWallet(opts) {
-  const { userId, amount, bookingId, label, idempotencyKey } = opts;
-  const uid = String(userId ?? "").trim();
-  const key = String(idempotencyKey ?? "").trim();
-  if (!uid || !key) throw new Error("\u0645\u0639\u0631\u0651\u0641 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u0623\u0648 \u0645\u0641\u062A\u0627\u062D \u0627\u0644\u062A\u0632\u0627\u0645\u0646 \u0646\u0627\u0642\u0635");
-  const amt = Math.round(Number(amount));
-  if (!Number.isFinite(amt) || amt <= 0) throw new Error("\u0627\u0644\u0645\u0628\u0644\u063A \u063A\u064A\u0631 \u0635\u0627\u0644\u062D");
-  const db = getDb();
-  const wRef = db.collection("wallets").doc(uid);
-  const ledgerRef = db.collection(WALLET_LEDGER_COLLECTION).doc(key);
-  return db.runTransaction(async (tx) => {
-    const wSnap = await tx.get(wRef);
-    const ledgerSnap = await tx.get(ledgerRef);
-    if (ledgerSnap.exists) {
-      const bal = wSnap.exists ? Math.round(Number(wSnap.data()?.user_balance ?? 0)) : 0;
-      return { balance: bal, transactionId: key, duplicate: true };
-    }
-    const balance = wSnap.exists ? Math.round(Number(wSnap.data()?.user_balance ?? 0)) : 0;
-    if (balance < amt) {
-      throw new Error("INSUFFICIENT_FUNDS");
-    }
-    const next = balance - amt;
-    const ts = admin2.firestore.FieldValue.serverTimestamp();
-    if (!wSnap.exists) {
-      tx.set(wRef, { user_balance: next, updatedAt: ts });
-    } else {
-      tx.update(wRef, { user_balance: next, updatedAt: ts });
-    }
-    tx.set(ledgerRef, {
-      transactionId: key,
-      userId: uid,
-      walletUserId: uid,
-      amount: amt,
-      type: "debit",
-      status: "completed",
-      timestamp: ts,
-      bookingId: bookingId ?? null,
-      label: typeof label === "string" ? label : "",
-      balanceAfter: next
-    });
-    return { balance: next, transactionId: key, duplicate: false };
-  });
-}
-async function adminCreditWallet(opts) {
-  const uid = String(opts.userId ?? "").trim();
-  const key = String(opts.idempotencyKey ?? "").trim();
-  const amt = Math.round(Number(opts.amount));
-  if (!uid || !key || !Number.isFinite(amt) || amt <= 0) {
-    throw new Error("\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0634\u062D\u0646 \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629");
-  }
-  const db = getDb();
-  const wRef = db.collection("wallets").doc(uid);
-  const ledgerRef = db.collection(WALLET_LEDGER_COLLECTION).doc(key);
-  return db.runTransaction(async (tx) => {
-    const wSnap = await tx.get(wRef);
-    const ledgerSnap = await tx.get(ledgerRef);
-    if (ledgerSnap.exists) {
-      const bal = wSnap.exists ? Math.round(Number(wSnap.data()?.user_balance ?? 0)) : 0;
-      return { balance: bal, duplicate: true };
-    }
-    const balance = wSnap.exists ? Math.round(Number(wSnap.data()?.user_balance ?? 0)) : 0;
-    const next = balance + amt;
-    const ts = admin2.firestore.FieldValue.serverTimestamp();
-    tx.set(
-      wRef,
-      { user_balance: next, updatedAt: ts },
-      { merge: true }
-    );
-    tx.set(ledgerRef, {
-      transactionId: key,
-      userId: uid,
-      walletUserId: uid,
-      amount: amt,
-      type: "credit",
-      status: "completed",
-      timestamp: ts,
-      bookingId: null,
-      label: opts.label,
-      balanceAfter: next
-    });
-    return { balance: next, duplicate: false };
-  });
 }
 
 // server/waylRoutes.ts
@@ -1919,7 +2361,7 @@ function registerWaylRoutes(app2) {
         return res.status(200).send("OK");
       }
       ensureFirebaseAdminApp();
-      const db = admin3.firestore();
+      const db = admin4.firestore();
       const txId = String(
         payload.transactionId ?? payload.transaction_id ?? payload.id ?? payload.referenceId ?? payload.reference_id ?? ""
       ).trim();
@@ -1928,8 +2370,8 @@ function registerWaylRoutes(app2) {
           status: "confirmed",
           paymentStatus: "paid",
           waylTransactionId: txId || null,
-          paidAt: admin3.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin3.firestore.FieldValue.serverTimestamp()
+          paidAt: admin4.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin4.firestore.FieldValue.serverTimestamp()
         },
         { merge: true }
       );
@@ -1942,8 +2384,78 @@ function registerWaylRoutes(app2) {
 }
 
 // server/routes.ts
-var JWT_SECRET = process.env.SESSION_SECRET || "shootha_secret_2026";
-var SUPERVISOR_MASTER_KEY = process.env.SUPERVISOR_MASTER_KEY || "shootha_supervisor_2026";
+import rateLimit from "express-rate-limit";
+
+// server/authSecrets.ts
+function assertProductionSecurityConfig() {
+  if (process.env.NODE_ENV !== "production") return;
+  const jwt3 = process.env.SESSION_SECRET?.trim() ?? "";
+  if (jwt3.length < 32) {
+    throw new Error(
+      `SESSION_SECRET is required in production (min 32 characters). Example: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+    );
+  }
+  const sup = process.env.SUPERVISOR_MASTER_KEY?.trim() ?? "";
+  if (sup.length < 16) {
+    throw new Error(
+      "SUPERVISOR_MASTER_KEY is required in production (min 16 random characters)."
+    );
+  }
+}
+function getJwtSecret() {
+  const s = process.env.SESSION_SECRET?.trim() ?? "";
+  if (s) return s;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET missing after production assert");
+  }
+  return "shootha_secret_2026_dev_only";
+}
+function getSupervisorMasterKey() {
+  const s = process.env.SUPERVISOR_MASTER_KEY?.trim() ?? "";
+  if (s) return s;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SUPERVISOR_MASTER_KEY missing after production assert");
+  }
+  return "shootha_supervisor_2026_dev_only";
+}
+
+// server/firebaseBridgeTickets.ts
+import { randomBytes } from "node:crypto";
+var TTL_MS = 15 * 60 * 1e3;
+var MAX_ENTRIES = 5e4;
+var byPhoneDigits = /* @__PURE__ */ new Map();
+function pruneIfNeeded() {
+  if (byPhoneDigits.size < MAX_ENTRIES) return;
+  const now = Date.now();
+  for (const [k, v] of byPhoneDigits) {
+    if (v.expiresAt <= now) byPhoneDigits.delete(k);
+  }
+}
+function issueFirebaseBridgeTicket(phoneDigits) {
+  pruneIfNeeded();
+  const key = phoneDigits.replace(/\D/g, "");
+  if (!key) throw new Error("empty_phone_digits");
+  const ticket = randomBytes(32).toString("hex");
+  byPhoneDigits.set(key, { ticket, expiresAt: Date.now() + TTL_MS });
+  return ticket;
+}
+function consumeFirebaseBridgeTicket(phoneDigits, ticket) {
+  const key = phoneDigits.replace(/\D/g, "");
+  if (!key || !ticket?.trim()) return false;
+  const row = byPhoneDigits.get(key);
+  if (!row || row.ticket !== ticket.trim()) return false;
+  if (Date.now() > row.expiresAt) {
+    byPhoneDigits.delete(key);
+    return false;
+  }
+  byPhoneDigits.delete(key);
+  return true;
+}
+
+// server/routes.ts
+function firebaseCustomTokenBridgeRequired() {
+  return process.env.CUSTOM_TOKEN_INSECURE_LEGACY !== "1";
+}
 var PREPAID_CARD_ADMIN_KEY = process.env.PREPAID_CARD_ADMIN_KEY?.trim() ?? "";
 function generateOtp() {
   return Math.floor(1e3 + Math.random() * 9e3).toString();
@@ -2056,7 +2568,7 @@ function validateDateOfBirth(value) {
   return { ok: true };
 }
 function signToken(userId, role, expiresIn = "30d") {
-  return jwt2.sign({ userId, role }, JWT_SECRET, { expiresIn });
+  return jwt2.sign({ userId, role }, getJwtSecret(), { expiresIn });
 }
 function safeUser(user) {
   return {
@@ -2100,7 +2612,7 @@ function authMiddleware(req, res, next) {
   }
   try {
     const token = authHeader.slice(7);
-    const payload = jwt2.verify(token, JWT_SECRET);
+    const payload = jwt2.verify(token, getJwtSecret());
     req.userId = payload.userId;
     req.userRole = payload.role;
     next();
@@ -2116,7 +2628,7 @@ function walletAuthMiddleware(req, res, next) {
   if (authHeader?.startsWith("Bearer ")) {
     try {
       const token = authHeader.slice(7);
-      const payload = jwt2.verify(token, JWT_SECRET);
+      const payload = jwt2.verify(token, getJwtSecret());
       req.userId = payload.userId;
       req.userRole = payload.role;
       return next();
@@ -2139,6 +2651,44 @@ function ownerGuard(req, res, next) {
   next();
 }
 async function registerRoutes(app2) {
+  assertProductionSecurityConfig();
+  const otpRouteLimiter = rateLimit({
+    windowMs: 15 * 60 * 1e3,
+    max: 80,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "\u0637\u0644\u0628\u0627\u062A \u0643\u062B\u064A\u0631\u0629 \u2014 \u062D\u0627\u0648\u0644 \u0644\u0627\u062D\u0642\u0627\u064B" }
+  });
+  const internalBridgeLimiter = rateLimit({
+    windowMs: 60 * 1e3,
+    max: 40,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "Too many requests" }
+  });
+  app2.use("/api/auth/send-otp", otpRouteLimiter);
+  app2.use("/api/otp/verify", otpRouteLimiter);
+  app2.use("/api/auth/custom-token", otpRouteLimiter);
+  app2.use("/api/internal/firebase-bridge-ticket", internalBridgeLimiter);
+  app2.post("/api/internal/firebase-bridge-ticket", async (req, res) => {
+    try {
+      const auth3 = String(req.headers.authorization ?? "");
+      const secret = process.env.FIREBASE_TOKEN_BRIDGE_SECRET?.trim() ?? "";
+      if (!secret || auth3 !== `Bearer ${secret}`) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      const { phone } = req.body;
+      const digits = normalizePhone(String(phone ?? ""));
+      const e164 = phoneDigitsToOtpiqE164(digits);
+      if (!/^\+964\d{10}$/.test(e164)) {
+        return res.status(400).json({ message: "\u0631\u0642\u0645 \u063A\u064A\u0631 \u0635\u0627\u0644\u062D" });
+      }
+      const ticket = issueFirebaseBridgeTicket(digits);
+      return res.json({ firebaseBridgeTicket: ticket });
+    } catch {
+      return res.status(500).json({ message: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
+    }
+  });
   app2.post("/api/auth/send-otp", async (req, res) => {
     try {
       const { phone } = req.body;
@@ -2193,7 +2743,16 @@ async function registerRoutes(app2) {
           retryAfterSec: otpCheck.retryAfterSec
         });
       }
-      return res.json({ success: true, message: "verified" });
+      let firebaseBridgeTicket;
+      try {
+        firebaseBridgeTicket = issueFirebaseBridgeTicket(normalizedPhone);
+      } catch {
+      }
+      return res.json({
+        success: true,
+        message: "verified",
+        ...firebaseBridgeTicket ? { firebaseBridgeTicket } : {}
+      });
     } catch {
       return res.status(500).json({ success: false, error: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
     }
@@ -2223,17 +2782,25 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/auth/custom-token", async (req, res) => {
     try {
-      const { phone } = req.body;
+      const { phone, bridgeTicket, firebaseBridgeTicket } = req.body;
       const digits = normalizePhone(phone ?? "");
       const e164 = phoneDigitsToOtpiqE164(digits);
       if (!/^\+964\d{10}$/.test(e164)) {
         return res.status(400).json({ message: "\u0631\u0642\u0645 \u063A\u064A\u0631 \u0635\u0627\u0644\u062D" });
       }
+      const ticketRaw = String(bridgeTicket ?? firebaseBridgeTicket ?? "").trim();
+      if (firebaseCustomTokenBridgeRequired()) {
+        if (!consumeFirebaseBridgeTicket(digits, ticketRaw)) {
+          return res.status(401).json({
+            message: "\u0627\u0646\u062A\u0647\u062A \u0635\u0644\u0627\u062D\u064A\u0629 \u0627\u0644\u062A\u062D\u0642\u0642. \u0633\u062C\u0651\u0644 \u0627\u0644\u062F\u062E\u0648\u0644 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649 \u0628\u0631\u0645\u0632 OTP\u060C \u0623\u0648 \u0636\u0628\u0637 \u062E\u0627\u062F\u0645 OTP \u0644\u0627\u0633\u062A\u062F\u0639\u0627\u0621 /api/internal/firebase-bridge-ticket (\u0631\u0627\u062C\u0639 FIREBASE_TOKEN_BRIDGE_SECRET \u0648 MAIN_API_BRIDGE_BASE_URL)."
+          });
+        }
+      }
       if (!isWalletFirestoreConfigured()) {
         return res.status(503).json({ message: "\u062E\u0627\u062F\u0645 Firebase \u063A\u064A\u0631 \u0645\u064F\u0636\u0628\u0637" });
       }
       ensureFirebaseAdminApp();
-      const db = admin4.firestore();
+      const db = admin5.firestore();
       const userSnap = await db.collection("users").doc(e164).get();
       if (!userSnap.exists) {
         return res.status(404).json({ message: "\u0644\u0627 \u064A\u0648\u062C\u062F \u062D\u0633\u0627\u0628" });
@@ -2243,7 +2810,7 @@ async function registerRoutes(app2) {
       const playerId = typeof uData?.playerId === "string" ? String(uData.playerId).trim() : "";
       const claims = { e164 };
       if (playerId) claims.playerId = playerId;
-      const token = await admin4.auth().createCustomToken(uid, claims);
+      const token = await admin5.auth().createCustomToken(uid, claims);
       return res.json({ token });
     } catch (e) {
       console.error("[custom-token]", e);
@@ -2392,27 +2959,42 @@ async function registerRoutes(app2) {
     try {
       const userId = req.userId;
       const { code } = req.body;
-      const result2 = await storage.redeemPrepaidCard(userId, code ?? "");
-      if (!result2.ok) {
-        return res.status(400).json({ message: result2.message });
+      if (userId === "guest") {
+        return res.status(400).json({ message: "\u0633\u062C\u0651\u0644 \u0627\u0644\u062F\u062E\u0648\u0644 \u0644\u0634\u062D\u0646 \u0627\u0644\u0645\u062D\u0641\u0638\u0629" });
       }
-      if (isWalletFirestoreConfigured() && userId && userId !== "guest") {
+      if (isWalletFirestoreConfigured()) {
         try {
-          const norm = normalizePrepaidCardCode(code ?? "");
-          const credit = await adminCreditWallet({
+          const [memUser, fsProf] = await Promise.all([
+            storage.getAuthUserById(userId),
+            adminLoadRedeemerSnapshot(userId)
+          ]);
+          const redeemer = mergeRedeemerProfiles(userId, memUser, fsProf);
+          const out = await adminRedeemPrepaidCardAndCreditWallet({
             userId,
-            amount: result2.amount,
-            label: `\u0634\u062D\u0646 \u0628\u0637\u0627\u0642\u0629 ${norm.slice(0, 4)}\u2026`,
-            idempotencyKey: `redeem:${norm}`
+            code: code ?? "",
+            redeemer
           });
-          return res.json({ amount: result2.amount, balance: credit.balance });
+          return res.json({ amount: out.amount, balance: out.balance });
         } catch (e) {
-          console.error("[wallet/redeem] Firestore credit failed after prepaid OK:", e);
-          return res.status(500).json({
-            message: "\u062A\u0645 \u0642\u0628\u0648\u0644 \u0627\u0644\u0628\u0637\u0627\u0642\u0629 \u0644\u0643\u0646 \u0641\u0634\u0644 \u0625\u0636\u0627\u0641\u0629 \u0627\u0644\u0631\u0635\u064A\u062F \u0644\u0644\u0645\u062D\u0641\u0638\u0629 \u0627\u0644\u0633\u062D\u0627\u0628\u0629. \u062A\u0648\u0627\u0635\u0644 \u0645\u0639 \u0627\u0644\u062F\u0639\u0645."
-          });
+          const msg = String(e?.message ?? "");
+          if (msg === "CARD_CODE_TOO_SHORT") {
+            return res.status(400).json({ message: "\u0623\u062F\u062E\u0644 \u0631\u0642\u0645 \u0627\u0644\u0628\u0637\u0627\u0642\u0629 \u0643\u0627\u0645\u0644\u0627\u064B" });
+          }
+          if (msg === "CARD_NOT_FOUND") {
+            return res.status(400).json({ message: "\u0631\u0642\u0645 \u0627\u0644\u0628\u0637\u0627\u0642\u0629 \u063A\u064A\u0631 \u0635\u062D\u064A\u062D \u0623\u0648 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
+          }
+          if (msg === "CARD_ALREADY_REDEEMED") {
+            return res.status(400).json({ message: "\u0647\u0630\u0647 \u0627\u0644\u0628\u0637\u0627\u0642\u0629 \u0645\u064F\u0633\u062A\u062E\u062F\u0645\u0629 \u0645\u0633\u0628\u0642\u0627\u064B" });
+          }
+          if (msg === "CARD_EXPIRED") {
+            return res.status(400).json({ message: "\u0627\u0646\u062A\u0647\u062A \u0635\u0644\u0627\u062D\u064A\u0629 \u0647\u0630\u0647 \u0627\u0644\u0642\u0633\u064A\u0645\u0629" });
+          }
+          console.error("[wallet/redeem] Firestore redeem:", e);
+          return res.status(500).json({ message: "\u062A\u0639\u0630\u0631 \u062A\u0641\u0639\u064A\u0644 \u0627\u0644\u0628\u0637\u0627\u0642\u0629" });
         }
       }
+      const result2 = await storage.redeemPrepaidCard(userId, code ?? "");
+      if (!result2.ok) return res.status(400).json({ message: result2.message });
       return res.json({ amount: result2.amount, balance: result2.balance });
     } catch {
       return res.status(500).json({ message: "\u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645" });
@@ -2469,7 +3051,31 @@ async function registerRoutes(app2) {
       return res.status(401).json({ message: "\u063A\u064A\u0631 \u0645\u0635\u0631\u062D \u2014 \u0639\u064A\u0651\u0646 PREPAID_CARD_ADMIN_KEY \u0641\u064A \u0627\u0644\u0633\u064A\u0631\u0641\u0631 \u0648\u0623\u0631\u0633\u0644 X-Prepaid-Admin-Key" });
     }
     try {
-      const { code, amount } = req.body;
+      const { code, amount, expiryDate } = req.body;
+      if (isWalletFirestoreConfigured()) {
+        try {
+          const out = await adminCreatePrepaidCard({
+            code: code ?? "",
+            amount: amount ?? 0,
+            createdBy: "admin",
+            expiryDate: expiryDate ?? null
+          });
+          return res.json({
+            message: "\u062A\u0645 \u0625\u0646\u0634\u0627\u0621 \u0628\u0637\u0627\u0642\u0629 \u0627\u0644\u0631\u0635\u064A\u062F",
+            code: out.code,
+            amount: out.amount,
+            id: out.id
+          });
+        } catch (e) {
+          const msg = String(e?.message ?? "");
+          if (msg === "CARD_CODE_TOO_SHORT")
+            return res.status(400).json({ message: "\u0631\u0645\u0632 \u0627\u0644\u0628\u0637\u0627\u0642\u0629 \u0642\u0635\u064A\u0631 \u062C\u062F\u0627\u064B (6 \u0623\u062D\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644)" });
+          if (msg === "CARD_AMOUNT_TOO_LOW") return res.status(400).json({ message: "Amount must be at least 1,000 IQD" });
+          if (msg === "CARD_EXISTS") return res.status(409).json({ message: "\u0647\u0630\u0627 \u0627\u0644\u0631\u0645\u0632 \u0645\u0633\u062C\u0651\u0644 \u0645\u0633\u0628\u0642\u0627\u064B" });
+          console.error("[admin/prepaid-cards] Firestore create:", e);
+          return res.status(500).json({ message: "\u0641\u0634\u0644 \u0625\u0646\u0634\u0627\u0621 \u0627\u0644\u0628\u0637\u0627\u0642\u0629" });
+        }
+      }
       await storage.createPrepaidCard(code ?? "", amount ?? 0);
       return res.json({ message: "\u062A\u0645 \u0625\u0646\u0634\u0627\u0621 \u0628\u0637\u0627\u0642\u0629 \u0627\u0644\u0631\u0635\u064A\u062F" });
     } catch (e) {
@@ -2653,7 +3259,7 @@ async function registerRoutes(app2) {
   app2.post("/api/auth/supervisor-token", async (req, res) => {
     try {
       const { masterKey, expiryMinutes = 120 } = req.body;
-      if (masterKey !== SUPERVISOR_MASTER_KEY) {
+      if (masterKey !== getSupervisorMasterKey()) {
         return res.status(403).json({ message: "\u0645\u0641\u062A\u0627\u062D \u0627\u0644\u0648\u0635\u0648\u0644 \u063A\u064A\u0631 \u0635\u062D\u064A\u062D" });
       }
       const clampedExpiry = Math.min(Math.max(expiryMinutes, 10), 480);
@@ -2736,19 +3342,42 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/venues", async (req, res) => {
     try {
-      const { name, location, price } = req.body;
-      if (!name || !location || !price) {
-        return res.status(400).json({ error: "Missing data" });
+      if (!isFirebaseEnvConfigured()) {
+        return res.status(503).json({ message: "Firebase \u063A\u064A\u0631 \u0645\u064F\u0636\u0628\u0637 \u0639\u0644\u0649 \u0627\u0644\u062E\u0627\u062F\u0645" });
       }
-      if (!global.venues) global.venues = [];
-      const newVenue = {
-        id: Date.now().toString(),
-        name,
-        location,
-        price
+      const rawName = String(req.body?.name ?? "").trim();
+      const rawLocation = String(req.body?.location ?? "").trim();
+      const rawPrice = Number(req.body?.price ?? req.body?.pricePerHour ?? 0);
+      if (!rawName || !rawLocation || !Number.isFinite(rawPrice) || rawPrice <= 0) {
+        return res.status(400).json({ message: "Missing or invalid venue data" });
+      }
+      ensureFirebaseAdminApp();
+      const db = admin5.firestore();
+      const docRef = db.collection("fields").doc();
+      const payload = {
+        name: rawName,
+        location: rawLocation,
+        district: rawLocation,
+        pricePerHour: Math.round(rawPrice),
+        fieldSizes: ["5 \u0636\u062F 5"],
+        amenities: [],
+        imageColor: getVenueColor2(docRef.id),
+        isOpen: true,
+        openHours: "08:00 \u2013 24:00",
+        lat: 36.335,
+        lon: 43.119,
+        rating: 0,
+        reviewCount: 0,
+        createdAt: admin5.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin5.firestore.FieldValue.serverTimestamp()
       };
-      global.venues.push(newVenue);
-      return res.json(newVenue);
+      await docRef.set(payload);
+      return res.status(201).json({
+        id: docRef.id,
+        ...payload,
+        createdAt: void 0,
+        updatedAt: void 0
+      });
     } catch (e) {
       console.error("[POST /api/venues]", e);
       return res.status(500).json({ message: "Server error" });
@@ -2816,6 +3445,19 @@ async function registerRoutes(app2) {
       }
       const normalizedTime = time.includes(":") ? time : `${String(time).padStart(2, "0")}:00`;
       const hourlyPrice = duration > 0 ? Math.round(totalPrice / duration * 100) / 100 : totalPrice;
+      const todayBaghdad = (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA", { timeZone: "Asia/Baghdad" });
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Baghdad",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      }).formatToParts(/* @__PURE__ */ new Date());
+      const bh = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10) * 60 + parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+      const [th, tm] = normalizedTime.split(":").map((x) => parseInt(x, 10));
+      const startMin = (Number.isFinite(th) ? th : 0) * 60 + (Number.isFinite(tm) ? tm : 0);
+      if (date < todayBaghdad || date === todayBaghdad && startMin < bh) {
+        return res.status(400).json({ message: "\u0644\u0627 \u064A\u0645\u0643\u0646 \u062D\u062C\u0632 \u0648\u0642\u062A \u0642\u062F \u0645\u0631\u0651 \u0641\u064A \u0647\u0630\u0627 \u0627\u0644\u064A\u0648\u0645" });
+      }
       const allBookings = await storage.getOwnerBookings(resolved.ownerId);
       const dayBookings = allBookings.filter((b) => b.date === date && b.status !== "cancelled");
       const conflict = dayBookings.find(
@@ -3152,7 +3794,8 @@ async function registerRoutes(app2) {
       console.error("[CRON] Reminder error:", e);
     }
   });
-  registerPromoRoutes(app2, JWT_SECRET);
+  registerPitchRatingsRoute(app2);
+  registerPromoRoutes(app2, getJwtSecret());
   registerWaylRoutes(app2);
   const httpServer = createServer(app2);
   return httpServer;
@@ -3163,9 +3806,34 @@ import * as fs4 from "fs";
 import * as path2 from "path";
 var app = express();
 var log = console.log;
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: false,
+    hidePoweredBy: true,
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" }
+  })
+);
+function resolveCorsOrigin() {
+  if (process.env.NODE_ENV !== "production") return true;
+  const raw = process.env.ALLOWED_ORIGINS?.trim();
+  if (!raw) {
+    console.warn(
+      "[security] ALLOWED_ORIGINS \u063A\u064A\u0631 \u0645\u0636\u0628\u0648\u0637 \u0641\u064A \u0627\u0644\u0625\u0646\u062A\u0627\u062C \u2014 \u064A\u064F\u0633\u0645\u062D \u0628\u0623\u064A Origin (\u0639\u064A\u0651\u0646 \u0642\u0627\u0626\u0645\u0629 \u0645\u0641\u0635\u0648\u0644\u0629 \u0628\u0641\u0648\u0627\u0635\u0644 \u0644\u0627\u062D\u0642\u0627\u064B)."
+    );
+    return true;
+  }
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
+app.get("/health", (_req, res) => {
+  res.status(200).json({ ok: true, service: "shootha-api" });
+});
 app.use(
   cors({
-    origin: true,
+    origin: resolveCorsOrigin(),
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"]
@@ -3174,12 +3842,13 @@ app.use(
 function setupBodyParsing(app2) {
   app2.use(
     express.json({
+      limit: "512kb",
       verify: (req, _res, buf) => {
         req.rawBody = buf;
       }
     })
   );
-  app2.use(express.urlencoded({ extended: false }));
+  app2.use(express.urlencoded({ extended: false, limit: "256kb" }));
 }
 function setupRequestLogging(app2) {
   app2.use((req, res, next) => {
@@ -3195,7 +3864,8 @@ function setupRequestLogging(app2) {
       if (!path3.startsWith("/api")) return;
       const duration = Date.now() - start;
       let logLine = `${req.method} ${path3} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
+      const sensitive = path3.includes("/auth/") || path3.includes("/otp/") || path3.includes("custom-token") || path3.includes("bridge-ticket") || path3.includes("/wallet") || path3.includes("/promo") || path3.includes("/payments") || path3.includes("webhook");
+      if (capturedJsonResponse && !sensitive) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
       if (logLine.length > 80) {

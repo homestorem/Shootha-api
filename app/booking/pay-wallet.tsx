@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
+  Modal,
+  Share,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
@@ -18,27 +20,37 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useFocusEffect } from "@react-navigation/native";
 import { useTheme } from "@/context/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
+import { useLocation } from "@/context/LocationContext";
+import { useBookings, formatPrice, formatDate, formatDurationAr } from "@/context/BookingsContext";
 import {
-  useBookings,
-  formatPrice,
-  formatDate,
-  formatDurationAr,
-  type Booking,
-} from "@/context/BookingsContext";
-import { useRandomMatch, RANDOM_MATCH_MAX_PLAYERS } from "@/context/RandomMatchContext";
+  useRandomMatch,
+  RANDOM_MATCH_MAX_PLAYERS,
+  type RandomMatchItem,
+} from "@/context/RandomMatchContext";
+import { useLang } from "@/context/LanguageContext";
 import { GUEST_FULL_ACCESS } from "@/constants/guestAccess";
 import { Colors } from "@/constants/colors";
 import { fetchWallet, payFromWallet, formatIqd } from "@/lib/wallet-api";
 import { useGuestPrompt } from "@/context/GuestPromptContext";
+import {
+  isFirebaseBookingsEnabled,
+  createPendingBookingInFirestore,
+  confirmBookingPaymentInFirestore,
+  failPendingBookingPaymentInFirestore,
+} from "@/lib/firestore-bookings";
+import { getLocationForBooking, requireLocationForBooking } from "@/lib/bookingLocation";
+import { isBookingWallStartInPastForLocalCalendarDate } from "@/lib/booking-datetime-guard";
 
 export default function BookingPayWalletScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
-  const { token, isGuest, user } = useAuth();
+  const { token, isGuest, user, refreshPlayerFromFirestore } = useAuth();
+  const { latitude: ctxLat, longitude: ctxLon, hasPermission: locPermission } = useLocation();
   const { promptLogin } = useGuestPrompt();
-  const { addBooking } = useBookings();
+  const { updateBooking } = useBookings();
   const { addMatch } = useRandomMatch();
   const queryClient = useQueryClient();
+  const { t } = useLang();
 
   const allowWallet =
     (!!user && !isGuest) || (GUEST_FULL_ACCESS && isGuest);
@@ -78,6 +90,18 @@ export default function BookingPayWalletScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [paying, setPaying] = useState(false);
   const [rmPricing, setRmPricing] = useState<"split" | "full">("split");
+  const [showSuccessShare, setShowSuccessShare] = useState(false);
+  const [shareBundle, setShareBundle] = useState<{
+    venueId: string;
+    venueName: string;
+    fieldSize: string;
+    date: string;
+    time: string;
+    duration: number;
+    price: number;
+    bookingId: string;
+    match: RandomMatchItem | null;
+  } | null>(null);
 
   const fromRandomMatchFlow = params.fromRandomMatch === "1";
   const ownerShareAmount = useMemo(() => {
@@ -118,8 +142,52 @@ export default function BookingPayWalletScreen() {
     loadBalance();
   };
 
+  const handleShareBooking = async () => {
+    if (!shareBundle) return;
+    const { venueName, fieldSize, date, time, duration, price } = shareBundle;
+    const dateStr = formatDate(date);
+    const message = t("booking.shareMessage", {
+      venue: venueName,
+      date: dateStr,
+      time,
+      duration: formatDurationAr(duration),
+      field: fieldSize?.trim() ? fieldSize : "—",
+      price: formatPrice(price),
+    });
+    try {
+      await Share.share({
+        message,
+        title: t("booking.shareTitle"),
+      });
+    } catch {
+      /* إلغاء المشاركة */
+    }
+  };
+
+  const closeSuccessAndGoBookings = () => {
+    setShowSuccessShare(false);
+    setShareBundle(null);
+    router.replace("/(tabs)/bookings");
+  };
+
   const sufficient = balance !== null && balance >= payableAmount;
   const shortfall = balance !== null ? Math.max(0, payableAmount - balance) : null;
+
+  const resolveCoordsForBooking = useCallback(async (): Promise<{ lat: number; lon: number }> => {
+    if (Platform.OS === "web") {
+      return { lat: ctxLat, lon: ctxLon };
+    }
+    const precise = await getLocationForBooking();
+    if (precise) return precise;
+    if (
+      locPermission === true &&
+      Number.isFinite(ctxLat) &&
+      Number.isFinite(ctxLon)
+    ) {
+      return { lat: ctxLat, lon: ctxLon };
+    }
+    return requireLocationForBooking();
+  }, [ctxLat, ctxLon, locPermission]);
 
   const onPay = async () => {
     if (!allowWallet) {
@@ -130,72 +198,120 @@ export default function BookingPayWalletScreen() {
       Alert.alert("بيانات ناقصة", "ارجع لصفحة الملعب وأعد اختيار الحجز.");
       return;
     }
+    if (isBookingWallStartInPastForLocalCalendarDate(String(params.date), String(params.time))) {
+      Alert.alert(
+        "الوقت غير صالح",
+        "لا يمكن حجز وقت قد مضى. ارجع لصفحة الملعب واختر وقتاً قادماً.",
+      );
+      return;
+    }
     if (!sufficient) {
       Alert.alert("رصيد غير كافٍ", "شحن المحفظة بالمبلغ المطلوب ثم أعد المحاولة.");
+      return;
+    }
+    if (!user?.id || user.id === "guest" || user.role === "guest") {
+      promptLogin();
+      return;
+    }
+    if (!isFirebaseBookingsEnabled()) {
+      Alert.alert("تنبيه", "Firebase غير مُضبط — لا يمكن حفظ الحجز في السحابة.");
+      return;
+    }
+    let playerId = (user.playerId ?? "").trim();
+    if (!playerId) {
+      const synced = await refreshPlayerFromFirestore();
+      playerId = (synced ?? "").trim();
+    }
+    if (!playerId) {
+      Alert.alert("تنبيه", "جارٍ مزامنة معرّف حسابك. انتظر قليلاً ثم أعد المحاولة.");
+      return;
+    }
+    if (String(params.venueId).startsWith("exp-")) {
+      Alert.alert("تنبيه", "الملاعب التجريبية لا تدعم الحفظ في السحابة.");
       return;
     }
 
     const label = `دفع حجز — ${params.venueName} — ${params.date} ${params.time}`;
 
     setPaying(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      console.log("FINAL AMOUNT SENT:", payableAmount);
-      await payFromWallet(walletToken, payableAmount, label, {
-        userId: user?.id && user.id !== "guest" ? user.id : undefined,
-        bookingId: null,
-        idempotencyKey: invoiceRef,
-      });
-    } catch (e) {
-      setPaying(false);
-      Alert.alert("تعذر الخصم", e instanceof Error ? e.message : "حاول مرة أخرى.");
-      return;
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {
+      /* */
     }
 
-    const newBooking: Booking = {
-      id: Date.now().toString() + Math.random().toString(36).slice(2, 10),
-      venueId: params.venueId,
-      venueName: params.venueName,
-      fieldSize: params.fieldSize ?? "",
-      date: params.date,
-      time: params.time,
-      duration: durationNum,
-      price: amountNum,
-      status: "upcoming",
-      players: [{ id: "p_me", name: "أنا", paid: true }],
-      createdAt: new Date().toISOString(),
-    };
-
+    let pendingId: string | null = null;
     try {
-      await addBooking(newBooking, {
-        paymentMethod: "wallet",
-        paymentPaid: true,
+      const coords = await resolveCoordsForBooking();
+      pendingId = await createPendingBookingInFirestore({
+        venueId: params.venueId,
+        playerUserId: user.id,
+        playerId,
+        playerName: user.name ?? "لاعب",
+        phone: user.phone ?? "",
+        date: params.date,
+        startTime: params.time,
+        duration: durationNum,
+        totalPrice: amountNum,
+        venueName: params.venueName,
+        fieldSize: params.fieldSize ?? "",
+        appPaymentMethod: "wallet",
+        paymentPaid: false,
+        playerLat: coords.lat,
+        playerLon: coords.lon,
+        ...(fromRandomMatchFlow ? { skipTimeConflictCheck: true } : {}),
       });
+
+      await payFromWallet(walletToken, payableAmount, label, {
+        userId: user.id,
+        bookingId: pendingId,
+        idempotencyKey: `pay-booking:${pendingId}:${payableAmount}`,
+      });
+
+      await confirmBookingPaymentInFirestore(pendingId);
+
       if (params.venueId && !String(params.venueId).startsWith("exp-")) {
         queryClient.invalidateQueries({ queryKey: ["venue-day", params.venueId] });
       }
+      let matchItem: RandomMatchItem | null = null;
       if (params.fromRandomMatch === "1") {
-        addMatch({
+        matchItem = addMatch({
           venueId: params.venueId,
           venueName: params.venueName,
           time: params.time,
           date: params.date,
           totalPrice: amountNum,
+          bookingId: pendingId,
           pricingMode: rmPricing === "full" ? "full_prepaid" : "split",
           organizerName: user?.name,
           durationHours: durationNum,
           fieldSize: params.fieldSize,
         });
+        updateBooking(pendingId, { randomMatchId: matchItem.id });
       }
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert("تم الدفع والحجز", `تم خصم ${formatPrice(payableAmount)} من المحفظة وتأكيد حجزك.`, [
-        { text: "حسناً", onPress: () => router.replace("/(tabs)/bookings") },
-      ]);
-    } catch {
-      Alert.alert(
-        "تنبيه",
-        "تم الخصم من المحفظة لكن تعذر حفظ الحجز. راجع حجوزاتك أو الدعم.",
-      );
+
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch {
+        /* */
+      }
+      setShareBundle({
+        venueId: params.venueId,
+        venueName: params.venueName,
+        fieldSize: params.fieldSize ?? "",
+        date: params.date,
+        time: params.time,
+        duration: durationNum,
+        price: amountNum,
+        bookingId: pendingId,
+        match: matchItem,
+      });
+      setShowSuccessShare(true);
+    } catch (e) {
+      if (pendingId) {
+        await failPendingBookingPaymentInFirestore(pendingId, "wallet_pay_failed").catch(() => {});
+      }
+      Alert.alert("تعذر إتمام الحجز", e instanceof Error ? e.message : "حاول مرة أخرى.");
     } finally {
       setPaying(false);
     }
@@ -391,6 +507,30 @@ export default function BookingPayWalletScreen() {
           زِد رصيدك عبر «شحن المحفظة» أو استخدم بطاقة رصيد حتى يصبح الرصيد كافياً.
         </Text>
       )}
+
+      <Modal visible={showSuccessShare} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.successModal, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.successIconWrap}>
+              <Ionicons name="checkmark-circle" size={56} color={colors.primary} />
+            </View>
+            <Text style={[styles.successTitle, { color: colors.text }]}>تم الحجز بنجاح!</Text>
+            <Text style={[styles.successSub, { color: colors.textSecondary }]}>
+              تم خصم {formatPrice(payableAmount)} من المحفظة. يمكنك مشاركة تفاصيل الحجز مع من تريد.
+            </Text>
+            <Pressable style={[styles.shareMatchBtn, { backgroundColor: colors.primary }]} onPress={handleShareBooking}>
+              <Ionicons name="share-social" size={22} color="#000" />
+              <Text style={styles.shareMatchBtnText}>مشاركة تفاصيل الحجز</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.successDoneBtn, { borderColor: colors.border }]}
+              onPress={closeSuccessAndGoBookings}
+            >
+              <Text style={[styles.successDoneText, { color: colors.text }]}>عرض حجوزاتي</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -601,5 +741,61 @@ const styles = StyleSheet.create({
     fontFamily: "Cairo_400Regular",
     lineHeight: 18,
     marginTop: 4,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  successModal: {
+    width: "100%",
+    maxWidth: 340,
+    borderRadius: 20,
+    padding: 28,
+    borderWidth: 1,
+    alignItems: "center",
+  },
+  successIconWrap: {
+    marginBottom: 16,
+  },
+  successTitle: {
+    fontSize: 22,
+    fontFamily: "Cairo_700Bold",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  successSub: {
+    fontSize: 14,
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  shareMatchBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    width: "100%",
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginBottom: 12,
+  },
+  shareMatchBtnText: {
+    color: "#000",
+    fontSize: 15,
+    fontFamily: "Cairo_700Bold",
+  },
+  successDoneBtn: {
+    width: "100%",
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+  },
+  successDoneText: {
+    fontSize: 14,
+    fontFamily: "Cairo_600SemiBold",
   },
 });

@@ -15,9 +15,9 @@ const OPTIONAL_EXPO_PUBLIC_VARS = [
 
 function summarizeEnvValue(value: string | undefined) {
   const normalized = typeof value === "string" ? value.trim() : "";
+  /** لا نسجّل الطول — يقلّل تسرّب معلومات عن طول المفاتيح في الكونسول */
   return {
     present: normalized.length > 0,
-    length: normalized.length,
   };
 }
 

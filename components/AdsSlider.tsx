@@ -10,6 +10,7 @@ import {
   Platform,
   Pressable,
   Linking,
+  InteractionManager,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from "react-native";
@@ -54,10 +55,6 @@ const AdSlide = React.memo(function AdSlide({ item, width, height, flipBack }: A
 
   useEffect(() => {
     setImageFailed(false);
-  }, [item.id, uri]);
-
-  useEffect(() => {
-    console.log("[Ads] image URL (slide):", { id: item.id, uri });
   }, [item.id, uri]);
 
   const openLink = useCallback(() => {
@@ -225,6 +222,7 @@ export type AdsSliderProps = {
 
 export function AdsSlider({ ads, cardWidth, cardHeight }: AdsSliderProps) {
   const flatRef = useRef<FlatList<BannerAd>>(null);
+  const activeIndexRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const isRTL = I18nManager.isRTL;
   const snap = cardWidth;
@@ -232,40 +230,47 @@ export function AdsSlider({ ads, cardWidth, cardHeight }: AdsSliderProps) {
   const listKey = useMemo(() => ads.map((a) => a.id).join("|"), [ads]);
 
   useEffect(() => {
+    activeIndexRef.current = 0;
     setActiveIndex(0);
   }, [listKey]);
+
+  const scrollToIndexOffset = useCallback(
+    (index: number, animated: boolean) => {
+      const clamped = Math.max(0, Math.min(ads.length - 1, index));
+      const offset = clamped * snap;
+      try {
+        flatRef.current?.scrollToOffset({ offset, animated });
+      } catch {
+        /* */
+      }
+    },
+    [ads.length, snap],
+  );
 
   const onMomentumScrollEnd = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const x = e.nativeEvent.contentOffset.x;
       const idx = Math.round(x / snap);
       const clamped = Math.max(0, Math.min(ads.length - 1, idx));
+      activeIndexRef.current = clamped;
       setActiveIndex(clamped);
     },
     [ads.length, snap],
   );
 
+  /** تمرير تلقائي — scrollToOffset أوثق من scrollToIndex داخل ScrollView عمودي + RTL */
   useEffect(() => {
     if (ads.length <= 1) return;
     const id = setInterval(() => {
-      setActiveIndex((prev) => {
-        const next = (prev + 1) % ads.length;
-        requestAnimationFrame(() => {
-          try {
-            flatRef.current?.scrollToIndex({
-              index: next,
-              animated: true,
-              viewPosition: 0.5,
-            });
-          } catch {
-            flatRef.current?.scrollToOffset({ offset: next * snap, animated: true });
-          }
-        });
-        return next;
+      const next = (activeIndexRef.current + 1) % ads.length;
+      activeIndexRef.current = next;
+      setActiveIndex(next);
+      InteractionManager.runAfterInteractions(() => {
+        requestAnimationFrame(() => scrollToIndexOffset(next, true));
       });
     }, 5000);
     return () => clearInterval(id);
-  }, [ads.length, snap]);
+  }, [ads.length, snap, listKey, scrollToIndexOffset]);
 
   const renderItem = useCallback(
     ({ item }: { item: BannerAd }) => (
@@ -275,16 +280,16 @@ export function AdsSlider({ ads, cardWidth, cardHeight }: AdsSliderProps) {
   );
 
   return (
-    <View style={styles.carousel}>
+    <View style={[styles.carousel, { width: cardWidth }]}>
       <FlatList
         key={listKey}
         ref={flatRef}
         data={ads}
         horizontal
-        style={isRTL ? { transform: [{ scaleX: -1 }] } : undefined}
+        style={[{ width: cardWidth }, isRTL ? { transform: [{ scaleX: -1 }] } : undefined]}
         showsHorizontalScrollIndicator={false}
         snapToInterval={snap}
-        snapToAlignment="center"
+        snapToAlignment="start"
         decelerationRate="fast"
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
@@ -293,9 +298,10 @@ export function AdsSlider({ ads, cardWidth, cardHeight }: AdsSliderProps) {
           offset: index * snap,
           index,
         })}
-        initialNumToRender={3}
-        windowSize={5}
-        removeClippedSubviews={Platform.OS === "android"}
+        initialNumToRender={Math.min(ads.length, 4)}
+        windowSize={Math.min(ads.length + 2, 9)}
+        removeClippedSubviews={false}
+        nestedScrollEnabled
         onMomentumScrollEnd={onMomentumScrollEnd}
         onScrollToIndexFailed={({ index }) => {
           requestAnimationFrame(() => {
@@ -360,5 +366,15 @@ export const adsSliderLayout = {
   },
   get cardHeight() {
     return Math.round(this.wrapSize * 0.68);
+  },
+};
+
+/** إعلانات تبويب المتجر — شريط أقصر من البريميوم (0.68 على الرئيسية) */
+export const storeAdsSliderLayout = {
+  get wrapSize() {
+    return adsSliderLayout.wrapSize;
+  },
+  get cardHeight() {
+    return Math.round(adsSliderLayout.wrapSize * 0.4);
   },
 };

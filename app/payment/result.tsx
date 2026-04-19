@@ -42,6 +42,9 @@ export default function PaymentResultScreen() {
     transactionId?: string;
     transaction_id?: string;
     payment_id?: string;
+    txId?: string;
+    referenceId?: string;
+    ref?: string;
     description?: string;
     customerName?: string;
     customerPhone?: string;
@@ -65,21 +68,45 @@ export default function PaymentResultScreen() {
   const matchId = String(params.matchId ?? "");
   const venueName = String(params.venueName ?? "Shootha payment");
   const transactionId = String(
-    params.transactionId ?? params.transaction_id ?? params.payment_id ?? "",
+    params.transactionId ??
+      params.transaction_id ??
+      params.payment_id ??
+      params.txId ??
+      params.referenceId ??
+      params.ref ??
+      "",
   );
 
   useEffect(() => {
     let mounted = true;
-    async function run() {
-      if (initialStatus !== "success" || !user?.id) {
+    let authWaitTimer: ReturnType<typeof setTimeout> | undefined;
+
+    if (initialStatus === "success" && (!user?.id || user.id === "guest")) {
+      authWaitTimer = setTimeout(() => {
+        if (!mounted) return;
         setLoading(false);
+        setStatus("failure");
+        setErrorMsg(
+          "تعذر تأكيد الدفع: الجلسة غير جاهزة. إذا خُصم المبلغ من بطاقتك، افتح التطبيق من جديد أو تواصل مع الدعم مع رقم العملية.",
+        );
+      }, 25_000);
+    }
+
+    async function run() {
+      if (initialStatus !== "success") {
+        setLoading(false);
+        return;
+      }
+      if (!user?.id || user.id === "guest") {
         return;
       }
       try {
         if (transactionId) {
           const verified = await validateWaylTransaction(transactionId);
-          if (!verified.paid || verified.status !== "PAID") {
-            throw new Error("Payment validation failed. Transaction is not PAID.");
+          if (!verified.paid) {
+            throw new Error(
+              `لم يُؤكد الدفع (${verified.status || "غير معروف"}). إذا اكتمل الخصم، انتظر قليلاً ثم حدّث صفحة الحجوزات.`,
+            );
           }
         } else {
           console.warn(
@@ -143,6 +170,7 @@ export default function PaymentResultScreen() {
     void run();
     return () => {
       mounted = false;
+      if (authWaitTimer) clearTimeout(authWaitTimer);
     };
   }, [
     initialStatus,

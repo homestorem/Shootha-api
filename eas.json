@@ -15,11 +15,38 @@
     },
     "preview": {
       "distribution": "internal",
-      "environment": "preview"
+      "environment": "preview",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://shootha-api.onrender.com",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyBR8Smum36VsrM62BSyYpFCv897l5AE564",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "shootha-b6e9c.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "shootha-b6e9c",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "shootha-b6e9c.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "487857512888",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:487857512888:web:90a2132196abc43a002f4d"
+      },
+      "android": {
+        "buildType": "apk"
+      }
     },
     "production": {
       "autoIncrement": true,
-      "environment": "production"
+      "environment": "production",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://shootha-api.onrender.com",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyBR8Smum36VsrM62BSyYpFCv897l5AE564",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "shootha-b6e9c.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "shootha-b6e9c",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "shootha-b6e9c.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "487857512888",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:487857512888:web:90a2132196abc43a002f4d"
+      }
+    },
+    "release-apk": {
+      "extends": "production",
+      "android": {
+        "buildType": "apk"
+      }
     }
   },
   "submit": {

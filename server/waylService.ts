@@ -324,7 +324,7 @@ export class WaylService {
       if (response.status >= 200 && response.status < 300) {
         const normalized = this.normalizePaymentStatus(response.data);
         return {
-          paid: normalized === "PAID",
+          paid: isWaylPaidStatus(normalized),
           status: normalized,
           raw: response.data,
         };
@@ -374,12 +374,34 @@ export class WaylService {
       obj.payment_status ??
       obj.paymentStatus ??
       obj.status ??
+      obj.state ??
+      obj.transaction_status ??
+      obj.transactionStatus ??
       nestedData?.payment_status ??
       nestedData?.paymentStatus ??
       nestedData?.status ??
+      nestedData?.state ??
       "";
     return String(statusRaw).trim().toUpperCase();
   }
+}
+
+/** حالات نجاح معروفة من بوابات Wayl / مزودي الدفع (قد لا تُعاد دائماً كـ PAID) */
+const WAYL_SUCCESS_STATUSES = new Set([
+  "PAID",
+  "PAID_OUT",
+  "APPROVED",
+  "SUCCESS",
+  "SUCCEEDED",
+  "COMPLETED",
+  "COMPLETE",
+  "CAPTURED",
+  "SETTLED",
+  "CONFIRMED",
+]);
+
+export function isWaylPaidStatus(normalizedUpper: string): boolean {
+  return WAYL_SUCCESS_STATUSES.has(String(normalizedUpper ?? "").trim().toUpperCase());
 }
 
 export function mapWaylException(error: unknown): WaylHttpError {

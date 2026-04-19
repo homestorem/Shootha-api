@@ -57,10 +57,12 @@ import {
   RANDOM_MATCH_MAX_PLAYERS,
   type RandomMatchItem,
 } from "@/context/RandomMatchContext";
-import * as Linking from "expo-linking";
 import { applyPromoCodeFromFirestore } from "@/lib/firestore-promo";
 import { useLang } from "@/context/LanguageContext";
-import type { BookingShareEnvelopeV2 } from "@/lib/booking-share-payload";
+import {
+  formatLocalDateKey,
+  isBookingWallStartInPastForLocalCalendarDate,
+} from "@/lib/booking-datetime-guard";
 
 /** يتوافق مع Date.getDay(): 0 = الأحد … 6 = السبت */
 const JS_DAY_NAMES_AR = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
@@ -115,7 +117,7 @@ function generateDates(): { label: string; value: string }[] {
     const dayNum = d.getDate();
     dates.push({
       label: `${dayName}\n${dayNum}`,
-      value: d.toISOString().split("T")[0],
+      value: formatLocalDateKey(d),
     });
   }
   return dates;
@@ -172,6 +174,8 @@ export default function VenueDetailScreen() {
   const dates = generateDates();
 
   const [selectedDate, setSelectedDate] = useState(dates[0].value);
+  /** يُحدَّث كل 30ث لتصفية أوقات اليوم التي انتهت دون إعادة فتح الشاشة */
+  const [bookingClockTick, setBookingClockTick] = useState(0);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [selectedDuration, setSelectedDuration] = useState<number>(1);
   const [selectedSize, setSelectedSize] = useState<string>("");
@@ -187,6 +191,11 @@ export default function VenueDetailScreen() {
     appliedCode?: string;
   } | null>(null);
   const priceScale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const id = setInterval(() => setBookingClockTick((x) => x + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
@@ -353,13 +362,13 @@ export default function VenueDetailScreen() {
     });
   }, [selectedDuration, scheduleWindows]);
 
-  /** متاح إذا كل فترات الـ30 دقيقة ضمن [البداية، النهاية) غير محجوزة */
-  const isStartSlotAvailable = useMemo(() => {
+  /** تعارض مع حجز موجود (بدون فحص «الوقت مضى» — يُعرَض في الشبكة بشكل منفصل) */
+  const slotHasBookingOverlap = useMemo(() => {
     return (slot: string) => {
       const end = addDuration(slot, selectedDuration);
-      if (timeToMinutes(end) > 24 * 60) return false;
+      if (timeToMinutes(end) > 24 * 60) return true;
       const range = getSlotsInRange30(slot, end);
-      return range.length > 0 && range.every((s) => !bookedSlots30.has(s));
+      return !(range.length > 0 && range.every((s) => !bookedSlots30.has(s)));
     };
   }, [bookedSlots30, selectedDuration]);
 
@@ -367,6 +376,13 @@ export default function VenueDetailScreen() {
     if (!selectedTime) return;
     if (!slotsForDuration.includes(selectedTime)) setSelectedTime(null);
   }, [slotsForDuration, selectedTime]);
+
+  useEffect(() => {
+    if (!selectedTime) return;
+    if (isBookingWallStartInPastForLocalCalendarDate(selectedDate, selectedTime)) {
+      setSelectedTime(null);
+    }
+  }, [selectedDate, selectedTime, bookingClockTick]);
 
   const { latitude, longitude, hasPermission } = useLocation();
   const meta = (venue ?? {}) as VenueWithMeta;
@@ -398,7 +414,13 @@ export default function VenueDetailScreen() {
 
   const endTime = selectedTime ? addDuration(selectedTime, selectedDuration) : null;
   const rangeSlots30 = selectedTime && endTime && timeToMinutes(endTime) <= 24 * 60 ? getSlotsInRange30(selectedTime, endTime) : [];
-  const isRangeAvailable = rangeSlots30.length > 0 && rangeSlots30.every((s) => !bookedSlots30.has(s));
+  const selectedStartNotPast =
+    !!selectedTime &&
+    !isBookingWallStartInPastForLocalCalendarDate(selectedDate, selectedTime);
+  const isRangeAvailable =
+    selectedStartNotPast &&
+    rangeSlots30.length > 0 &&
+    rangeSlots30.every((s) => !bookedSlots30.has(s));
 
   const handlePayAndBook = () => {
     if (isGuest && !GUEST_FULL_ACCESS) {
@@ -407,6 +429,13 @@ export default function VenueDetailScreen() {
     }
     if (!selectedTime) {
       Alert.alert("اختر وقتًا", "الرجاء اختيار وقت البداية (من) للحجز");
+      return;
+    }
+    if (isBookingWallStartInPastForLocalCalendarDate(selectedDate, selectedTime)) {
+      Alert.alert(
+        "الوقت غير صالح",
+        "لا يمكن حجز وقت قد مضى اليوم. اختر ساعة لاحقة أو يوماً آخر.",
+      );
       return;
     }
     if (!isRangeAvailable) {
@@ -486,6 +515,14 @@ export default function VenueDetailScreen() {
       return;
     }
     if (!venue || !selectedTime || !isRangeAvailable) return;
+    if (isBookingWallStartInPastForLocalCalendarDate(selectedDate, selectedTime)) {
+      setShowPaymentModal(false);
+      Alert.alert(
+        "الوقت غير صالح",
+        "انتهى وقت الحجز المختار. اختر وقتاً قادماً ثم أعد المحاولة.",
+      );
+      return;
+    }
 
     // الدفع الإلكتروني من الفاتورة يوجّه مباشرةً إلى بوابة Wayl عبر شاشة pay-card.
     if (paymentMethod === "transfer") {
@@ -609,28 +646,15 @@ export default function VenueDetailScreen() {
 
   const handleShareBooking = async () => {
     if (!shareBundle) return;
-    const { venueId, venueName, fieldSize, date, time, duration, price, bookingId, match } = shareBundle;
+    const { venueName, fieldSize, date, time, duration, price } = shareBundle;
     const dateStr = formatDate(date);
-    const envelope: BookingShareEnvelopeV2 = {
-      v: 2,
-      bookingId,
-      venueId,
-      venueName,
-      fieldSize,
-      date,
-      time,
-      duration,
-      price,
-      ...(match ? { match } : {}),
-    };
-    const bookingUrl = Linking.createURL(`/booking/${bookingId}`, {
-      queryParams: { p: JSON.stringify(envelope) },
-    });
     const message = t("booking.shareMessage", {
       venue: venueName,
       date: dateStr,
       time,
-      url: bookingUrl,
+      duration: formatDurationAr(duration),
+      field: fieldSize?.trim() ? fieldSize : "—",
+      price: formatPrice(price),
     });
     try {
       await Share.share({
@@ -958,7 +982,9 @@ export default function VenueDetailScreen() {
           ) : null}
           <View style={styles.timeGrid}>
             {slotsForDuration.map((slot) => {
-              const booked = !isStartSlotAvailable(slot);
+              const past = isBookingWallStartInPastForLocalCalendarDate(selectedDate, slot);
+              const overlap = slotHasBookingOverlap(slot);
+              const blocked = past || overlap;
               const selected = selectedTime === slot;
               return (
                 <Pressable
@@ -967,19 +993,19 @@ export default function VenueDetailScreen() {
                     styles.timeCell,
                     { backgroundColor: colors.card, borderColor: colors.border },
                     selected && { backgroundColor: colors.surface, borderColor: colors.primary },
-                    booked && { borderColor: colors.destructive, opacity: 0.88 },
+                    blocked && { borderColor: colors.destructive, opacity: 0.88 },
                   ]}
-                  onPress={() => !booked && setSelectedTime(slot)}
-                  disabled={booked}
+                  onPress={() => !blocked && setSelectedTime(slot)}
+                  disabled={blocked}
                 >
                   <Text style={[styles.timeCellTime, { color: colors.text }]}>{slot}</Text>
                   <Text
                     style={[
                       styles.timeCellStatus,
-                      { color: booked ? colors.destructive : colors.primary },
+                      { color: blocked ? colors.destructive : colors.primary },
                     ]}
                   >
-                    {booked ? "محجوز" : "متاح"}
+                    {past ? "انتهى" : overlap ? "محجوز" : "متاح"}
                   </Text>
                 </Pressable>
               );

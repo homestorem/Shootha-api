@@ -263,26 +263,39 @@ const shareInvite = () => {
   }).catch(() => {})
 }
 
-const logoutConfirm=()=>{
+const logoutConfirm = () => {
+  const title = tl("profile.logoutTitle");
+  const message = tl("profile.logoutConfirm");
+  const performLogout = async () => {
+    try {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {
+      /* أجهزة بدون هابتيك */
+    }
+    try {
+      await logout();
+    } catch (e) {
+      console.error("[profile] logout failed", e);
+      Alert.alert(tl("common.errorTitle"), "تعذّر تسجيل الخروج. حاول مجدداً.");
+    }
+  };
 
-Alert.alert(
-tl("profile.logoutTitle"),
-tl("profile.logoutConfirm"),
-[
-{ text:tl("common.no"),style:"cancel"},
-{
-text:tl("common.yes"),
-style:"destructive",
-onPress:async()=>{
-Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-await logout()
-router.replace("/auth/player/login")
-}
-}
-]
-)
+  if (Platform.OS === "web") {
+    if (typeof window !== "undefined" && window.confirm(`${title}\n\n${message}`)) {
+      void performLogout();
+    }
+    return;
+  }
 
-}
+  Alert.alert(title, message, [
+    { text: tl("common.no"), style: "cancel" },
+    {
+      text: tl("common.yes"),
+      style: "destructive",
+      onPress: () => void performLogout(),
+    },
+  ]);
+};
 
 return (
 <AppBackground>
@@ -460,23 +473,6 @@ palette={t}
 onPress={()=>router.push("/profile/support")}
 />
 
-<SettingRow
-icon="chatbubble-ellipses-outline"
-label={tl("profile.liveSupportChat")}
-palette={t}
-onPress={()=>router.push("/profile/support-chat")}
-rightElement={
-<View style={styles.supportRowRight}>
-{supportChatUnread ? (
-<View style={[styles.supportBadge, { backgroundColor: t.accent }]}>
-<Text style={styles.supportBadgeText}>{tl("common.new")}</Text>
-</View>
-) : null}
-<Ionicons name="chevron-back" size={16} color={t.textSecondary}/>
-</View>
-}
-/>
-
 </View>
 
 {/* RATE APP */}
@@ -487,6 +483,7 @@ rightElement={
 icon="star-outline"
 label={tl("profile.rateApp")}
 palette={t}
+onPress={() => router.push("/profile/rate-app")}
 />
 
 </View>
@@ -494,12 +491,6 @@ palette={t}
 {/* UPDATE */}
 
 <View style={[styles.group,{backgroundColor:t.card,borderColor:t.border}, isDark ? styles.darkGlow : styles.lightShadow]}>
-
-<SettingRow
-icon="refresh-outline"
-label={tl("profile.updateApp")}
-palette={t}
-/>
 
 <SettingRow
 icon="grid-outline"

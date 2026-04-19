@@ -22,6 +22,7 @@ import * as admin from "firebase-admin";
 import * as fs from "node:fs";
 import jwt from "jsonwebtoken";
 import type { Express, Request, Response } from "express";
+import { isWalletFirestoreConfigured } from "./walletFirestore.ts";
 
 let firestoreInited = false;
 
@@ -45,9 +46,7 @@ function initAdminApp(): void {
 }
 
 export function isPromoFirestoreConfigured(): boolean {
-  const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
-  const pathEnv = process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim();
-  return Boolean(json || (pathEnv && fs.existsSync(pathEnv)));
+  return isWalletFirestoreConfigured();
 }
 
 export function getPromoDb(): admin.firestore.Firestore {

@@ -1,6 +1,10 @@
 import { signInWithCustomToken } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { getResolvedApiBaseUrl } from "@/lib/devServerHost";
+import {
+  clearPendingFirebaseBridgeTicket,
+  peekFirebaseBridgeTicket,
+} from "@/lib/firebaseBridgeTicket";
 
 /**
  * يربط عميل Firebase Auth بجلسة الدعم في Firestore (قواعد chats تتطلب request.auth).
@@ -30,10 +34,11 @@ export async function ensureFirebaseAuthForSupportChat(phoneE164: string): Promi
   }
 
   try {
+    const bridgeTicket = peekFirebaseBridgeTicket(phone) ?? undefined;
     const res = await fetch(`${base}/api/auth/custom-token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone }),
+      body: JSON.stringify({ phone, bridgeTicket }),
     });
     const data = (await res.json().catch(() => ({}))) as { token?: string; message?: string };
     if (!res.ok || !data.token) {
@@ -43,6 +48,7 @@ export async function ensureFirebaseAuthForSupportChat(phoneE164: string): Promi
       return false;
     }
     await signInWithCustomToken(auth, data.token);
+    clearPendingFirebaseBridgeTicket();
     return true;
   } catch (e) {
     if (__DEV__) console.warn("[support-auth]", e);

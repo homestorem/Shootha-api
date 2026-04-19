@@ -98,6 +98,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    /** إحصائيات لوحة المتصدرين — يحدّثها الخادم (Admin) فقط */
+    match /leaderboardPlayerStats/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    /** تقييمات ما بعد المباراة — كتابة عبر الخادم فقط */
+    match /التقييمات/{docId} {
+      allow read: if false;
+      allow write: if false;
+    }
+
     /**
      * المستخدمون — تدفق OTP يقرأ/يكتب من العميل قبل اكتمال Firebase Auth أحياناً؛
      * يُفضّل تشديد القواعد لاحقاً مع App Check أو كتابة عبر الخادم فقط.
