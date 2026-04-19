@@ -7,10 +7,16 @@ function isValidToken(token: string): boolean {
   );
 }
 
+/** حقول Expo Push API — أولوية عالية + قناة `default` لظهور الإشعار في شريط أندرويد خارج التطبيق */
 type PushMessage = {
   to: string;
   title: string;
   body: string;
+  /** أندرويد: ضروري لعدم تأخير التسليم في Doze ولفتح اتصال الشبكة */
+  priority: "high" | "default" | "normal";
+  /** أندرويد 8+: يجب أن تطابق قناة أنشأها التطبيق (`expo-notifications` + `ensureAndroidDefaultChannel`) */
+  channelId: string;
+  sound: "default" | null;
   data?: Record<string, unknown>;
   image?: string;
 };
@@ -28,13 +34,19 @@ export async function sendPushNotifications(
   const CHUNK = 100;
   for (let i = 0; i < validTokens.length; i += CHUNK) {
     const chunk = validTokens.slice(i, i + CHUNK);
-    const messages: PushMessage[] = chunk.map((to) => ({
-      to,
-      title,
-      body,
-      data,
-      ...(image ? { image } : {}),
-    }));
+    const messages: PushMessage[] = chunk.map((to) => {
+      const msg: PushMessage = {
+        to,
+        title,
+        body,
+        priority: "high",
+        channelId: "default",
+        sound: "default",
+      };
+      if (data != null) msg.data = data;
+      if (image) msg.image = image;
+      return msg;
+    });
     try {
       const res = await fetch(EXPO_PUSH_URL, {
         method: "POST",

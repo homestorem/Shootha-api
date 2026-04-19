@@ -41,6 +41,8 @@ export type Booking = {
   createdAt: string;
   /** مرتبط بمباراة عشوائية بعد إنشاء الحجز من مسار المباراة العشوائية */
   randomMatchId?: string;
+  /** وُجد تقييم ما بعد الجلسة في Firestore (postMatchRatingAt) */
+  postMatchRated?: boolean;
 };
 
 export type Venue = {
@@ -88,6 +90,7 @@ function rowToBooking(row: PlayerBookingRow): Booking {
     players: row.players,
     createdAt: row.createdAt,
     randomMatchId: row.randomMatchId,
+    postMatchRated: row.postMatchRated,
   };
 }
 

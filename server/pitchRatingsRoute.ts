@@ -17,13 +17,21 @@ function wallBaghdadStartUtcMs(date: string, time: string): number {
   return Date.UTC(y, mo - 1, d, hh - BAGHDAD_UTC_OFFSET_H, mm, 0, 0);
 }
 
-function sessionEndedBaghdad(date: string, startTime: string, durationH: number, nowMs: number): boolean {
+/** يطابق العميل: التقييم مسموح بعد دقيقة من نهاية الحجز (مثال 17:00 → من 17:01). */
+const POST_MATCH_RATING_GRACE_MS = 60 * 1000;
+
+function sessionReadyForPostMatchRatingBaghdad(
+  date: string,
+  startTime: string,
+  durationH: number,
+  nowMs: number,
+): boolean {
   const dur = Number(durationH);
   if (!Number.isFinite(dur) || dur <= 0) return false;
   const startMs = wallBaghdadStartUtcMs(date, startTime);
   if (!Number.isFinite(startMs)) return false;
   const endMs = startMs + Math.max(0.25, dur) * 60 * 60 * 1000;
-  return nowMs >= endMs;
+  return nowMs >= endMs + POST_MATCH_RATING_GRACE_MS;
 }
 
 function playerStatDocId(name: string): string {
@@ -140,7 +148,7 @@ export function registerPitchRatingsRoute(app: Express): void {
           ? String(b.startTime)
           : `${String(b.startTime ?? "0").padStart(2, "0")}:00`;
         const duration = Number(b.duration);
-        if (!sessionEndedBaghdad(date, startTime, duration, Date.now())) {
+        if (!sessionReadyForPostMatchRatingBaghdad(date, startTime, duration, Date.now())) {
           throw Object.assign(new Error("SESSION_NOT_ENDED"), { code: 400 });
         }
 

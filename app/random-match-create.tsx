@@ -19,6 +19,7 @@ import { SkeletonVenueCard } from "@/components/SkeletonCard";
 import { fetchVenues } from "@/lib/app-data";
 import SearchMapView from "@/components/SearchMapView";
 import * as Location from "expo-location";
+import { readSanitizedNativeCoordinates } from "@/lib/native-device-coords";
 import { AppBackground } from "@/components/AppBackground";
 import * as Haptics from "expo-haptics";
 
@@ -47,10 +48,10 @@ export default function RandomMatchCreateScreen() {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") return;
-      const location = await Location.getCurrentPositionAsync({});
+      const { latitude: lat, longitude: lon } = await readSanitizedNativeCoordinates();
       const geo = await Location.reverseGeocodeAsync({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
+        latitude: lat,
+        longitude: lon,
       });
       if (geo.length > 0) {
         setCity(geo[0].city || "");

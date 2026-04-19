@@ -35,8 +35,8 @@ function GlassWelcomeCardInner({ userName }: GlassWelcomeCardProps) {
             : ["rgba(255,255,255,0.65)", "rgba(255,255,255,0.15)", "rgba(0,0,0,0.04)"]
         }
         locations={[0, 0.35, 1]}
-        start={{ x: 0.2, y: 0 }}
-        end={{ x: 0.8, y: 1 }}
+        start={{ x: 0.8, y: 0 }}
+        end={{ x: 0.2, y: 1 }}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
@@ -50,7 +50,7 @@ function GlassWelcomeCardInner({ userName }: GlassWelcomeCardProps) {
           <Text
             style={[
               styles.label,
-              { color: labelColor, textAlign: "right", writingDirection: "rtl" },
+              { color: labelColor, textAlign: "left", writingDirection: "rtl" },
             ]}
           >
             أهلاً بك
@@ -58,7 +58,7 @@ function GlassWelcomeCardInner({ userName }: GlassWelcomeCardProps) {
           <Text
             style={[
               styles.name,
-              { color: nameColor, textAlign: "right", writingDirection: "rtl" },
+              { color: nameColor, textAlign: "left", writingDirection: "rtl" },
             ]}
             numberOfLines={1}
           >
@@ -91,11 +91,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 14,
     gap: 2,
-    alignItems: "flex-end",
+    alignItems: "flex-start",
   },
   headTextWrap: {
     width: "100%",
-    alignItems: "flex-end",
+    alignItems: "flex-start",
   },
   label: {
     fontSize: 11,

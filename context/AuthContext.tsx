@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useMemo,
   useCallback,
+  useRef,
   ReactNode,
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -25,7 +26,7 @@ import {
 } from "@/lib/firebasePhoneAuth";
 import { normalizeIqPhoneToE164, isValidIqMobileE164 } from "@/lib/phoneE164";
 import { ensureFirebaseAuthForSupportChat } from "@/lib/firebaseSupportAuth";
-import { uploadImageAsync, isRemoteImageUrl } from "@/lib/cloudinary-upload";
+import { uploadImageIfConfigured, isRemoteImageUrl } from "@/lib/cloudinary-upload";
 import { router } from "expo-router";
 
 export type UserRole = "player" | "guest" | "supervisor";
@@ -89,6 +90,7 @@ interface AuthContextValue {
     name?: string;
     dateOfBirth?: string;
     profileImage?: string;
+    position?: string | null;
   }) => Promise<void>;
   deleteAccount: () => Promise<void>;
   sendEmailChangeOtp: (newEmail: string) => Promise<Record<string, never>>;
@@ -125,6 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isGuest, setIsGuest] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const updateProfileInFlightRef = useRef(false);
 
   const persistPlayer = useCallback(async (u: AuthUser) => {
     const normalized: AuthUser = {
@@ -437,46 +440,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     name?: string;
     dateOfBirth?: string;
     profileImage?: string;
+    position?: string | null;
   }): Promise<void> => {
     if (!user || user.role === "guest") {
       throw new Error("يجب تسجيل الدخول");
     }
-    let profileImage = data.profileImage ?? user.profileImage ?? null;
-    if (typeof profileImage === "string" && profileImage.trim() !== "") {
-      const trimmed = profileImage.trim();
-      if (!isRemoteImageUrl(trimmed)) {
-        profileImage = await uploadImageAsync(trimmed);
-      } else {
-        profileImage = trimmed;
-      }
-    } else {
-      profileImage = null;
+    if (updateProfileInFlightRef.current) {
+      throw new Error("جاري حفظ الملف الشخصي، انتظر حتى يكتمل.");
     }
+    updateProfileInFlightRef.current = true;
+    try {
+      let profileImage = data.profileImage ?? user.profileImage ?? null;
+      if (typeof profileImage === "string" && profileImage.trim() !== "") {
+        const trimmed = profileImage.trim();
+        if (!isRemoteImageUrl(trimmed)) {
+          const uploaded = await uploadImageIfConfigured(trimmed);
+          profileImage = uploaded ?? (user.profileImage ?? null);
+        } else {
+          profileImage = trimmed;
+        }
+      } else {
+        profileImage = null;
+      }
 
-    const nextName = (data.name ?? user.name ?? "").trim() || user.name;
-    const nextDob = data.dateOfBirth ?? user.dateOfBirth ?? null;
+      const nextName = (data.name ?? user.name ?? "").trim() || user.name;
+      const nextDob = data.dateOfBirth ?? user.dateOfBirth ?? null;
+      const nextPosition =
+        data.position !== undefined ? data.position : user.position ?? null;
 
-    await mergeFirestorePlayerProfile(user.id, {
-      name: nextName,
-      email: user.email ?? "",
-      phone: user.phone ?? "",
-      dateOfBirth: nextDob,
-      profileImage,
-      gender: user.gender ?? null,
-      position: user.position ?? null,
-    });
+      await mergeFirestorePlayerProfile(user.id, {
+        name: nextName,
+        email: user.email ?? "",
+        phone: user.phone ?? "",
+        dateOfBirth: nextDob,
+        profileImage,
+        gender: user.gender ?? null,
+        position: nextPosition,
+      });
 
-    const next: AuthUser = {
-      ...user,
-      name: nextName,
-      dateOfBirth: nextDob,
-      profileImage,
-    };
-    await AsyncStorage.multiSet([
-      [AUTH_USER_KEY, JSON.stringify(next)],
-      [USER_SESSION_KEY, JSON.stringify(next)],
-    ]);
-    setUser(next);
+      const next: AuthUser = {
+        ...user,
+        name: nextName,
+        dateOfBirth: nextDob,
+        profileImage,
+        position: nextPosition,
+      };
+      await AsyncStorage.multiSet([
+        [AUTH_USER_KEY, JSON.stringify(next)],
+        [USER_SESSION_KEY, JSON.stringify(next)],
+      ]);
+      setUser(next);
+    } finally {
+      updateProfileInFlightRef.current = false;
+    }
   };
 
   const deleteAccount = async (): Promise<void> => {

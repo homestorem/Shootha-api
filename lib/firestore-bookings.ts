@@ -34,6 +34,8 @@ export type PlayerBookingRow = {
   players: { id: string; name: string; paid: boolean }[];
   createdAt: string;
   randomMatchId?: string;
+  /** مُستنتج من postMatchRatingAt في Firestore */
+  postMatchRated?: boolean;
 };
 
 export type FirestoreBookingStatus = "confirmed" | "cancelled";
@@ -108,6 +110,8 @@ export type FirestoreBookingDoc = {
   cancellationSnapshot?: CancellationSnapshot;
   /** معرّف مستند walletTransactions عند الدفع من المحفظة */
   walletLedgerId?: string;
+  /** يُضبط من الخادم بعد إرسال تقييم ما بعد الجلسة — لتجنب إعادة طلب التقييم بعد الريلود */
+  postMatchRatingAt?: unknown;
 };
 
 export function isFirebaseBookingsEnabled(): boolean {
@@ -181,6 +185,7 @@ function docToBooking(id: string, data: FirestoreBookingDoc): PlayerBookingRow {
     data.createdAt && typeof (data.createdAt as { toDate?: () => Date }).toDate === "function"
       ? (data.createdAt as { toDate: () => Date }).toDate().toISOString()
       : new Date().toISOString();
+  const postMatchRated = Boolean(data.postMatchRatingAt);
   return {
     id,
     venueId: data.venueId,
@@ -194,6 +199,7 @@ function docToBooking(id: string, data: FirestoreBookingDoc): PlayerBookingRow {
     players: [{ id: "p_me", name: data.playerName || "لاعب", paid: true }],
     createdAt: created,
     randomMatchId: data.randomMatchId ?? undefined,
+    postMatchRated,
   };
 }
 

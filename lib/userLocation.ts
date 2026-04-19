@@ -1,19 +1,20 @@
 import * as Location from "expo-location";
+import { readSanitizedNativeCoordinates } from "@/lib/native-device-coords";
 
 export async function getUserLocation() {
   const { status } = await Location.requestForegroundPermissionsAsync();
   if (status !== "granted") return null;
 
-  const loc = await Location.getCurrentPositionAsync({});
+  const { latitude, longitude } = await readSanitizedNativeCoordinates();
 
   const geo = await Location.reverseGeocodeAsync({
-    latitude: loc.coords.latitude,
-    longitude: loc.coords.longitude,
+    latitude,
+    longitude,
   });
 
   return {
-    lat: loc.coords.latitude,
-    lon: loc.coords.longitude,
+    lat: latitude,
+    lon: longitude,
     name: geo?.[0]?.city || geo?.[0]?.region || "Unknown",
   };
 }

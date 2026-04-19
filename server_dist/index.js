@@ -423,13 +423,19 @@ async function sendPushNotifications(tokens, title, body, data, image) {
   const CHUNK = 100;
   for (let i = 0; i < validTokens.length; i += CHUNK) {
     const chunk = validTokens.slice(i, i + CHUNK);
-    const messages = chunk.map((to) => ({
-      to,
-      title,
-      body,
-      data,
-      ...image ? { image } : {}
-    }));
+    const messages = chunk.map((to) => {
+      const msg = {
+        to,
+        title,
+        body,
+        priority: "high",
+        channelId: "default",
+        sound: "default"
+      };
+      if (data != null) msg.data = data;
+      if (image) msg.image = image;
+      return msg;
+    });
     try {
       const res = await fetch(EXPO_PUSH_URL, {
         method: "POST",
@@ -1769,13 +1775,14 @@ function wallBaghdadStartUtcMs(date, time) {
   const mm = Number.isFinite(tm) ? tm : 0;
   return Date.UTC(y, mo - 1, d, hh - BAGHDAD_UTC_OFFSET_H, mm, 0, 0);
 }
-function sessionEndedBaghdad(date, startTime, durationH, nowMs) {
+var POST_MATCH_RATING_GRACE_MS = 60 * 1e3;
+function sessionReadyForPostMatchRatingBaghdad(date, startTime, durationH, nowMs) {
   const dur = Number(durationH);
   if (!Number.isFinite(dur) || dur <= 0) return false;
   const startMs = wallBaghdadStartUtcMs(date, startTime);
   if (!Number.isFinite(startMs)) return false;
   const endMs = startMs + Math.max(0.25, dur) * 60 * 60 * 1e3;
-  return nowMs >= endMs;
+  return nowMs >= endMs + POST_MATCH_RATING_GRACE_MS;
 }
 function playerStatDocId(name) {
   const raw = name.trim().replace(/\s+/g, " ").normalize("NFC").slice(0, 200);
@@ -1875,7 +1882,7 @@ function registerPitchRatingsRoute(app2) {
         const date = String(b.date ?? "");
         const startTime = String(b.startTime ?? "").includes(":") ? String(b.startTime) : `${String(b.startTime ?? "0").padStart(2, "0")}:00`;
         const duration = Number(b.duration);
-        if (!sessionEndedBaghdad(date, startTime, duration, Date.now())) {
+        if (!sessionReadyForPostMatchRatingBaghdad(date, startTime, duration, Date.now())) {
           throw Object.assign(new Error("SESSION_NOT_ENDED"), { code: 400 });
         }
         tx.set(ratingRef, {

@@ -1,9 +1,11 @@
+import { IRAQ_FALLBACK_LAT, IRAQ_FALLBACK_LON, isCoordinateLikelyInIraq } from "@/lib/location-iraq-bounds";
+
 export type WebLatLng = { lat: number; lng: number };
 
 /** الموصل — عند رفض الصلاحية أو فشل القراءة */
 export const WEB_LOCATION_MOSUL_FALLBACK: WebLatLng = {
-  lat: 36.34,
-  lng: 43.13,
+  lat: IRAQ_FALLBACK_LAT,
+  lng: IRAQ_FALLBACK_LON,
 };
 
 export type WebGeolocationResult = WebLatLng & { usedFallback: boolean };
@@ -21,9 +23,15 @@ export function getBrowserGeolocation(): Promise<WebGeolocationResult> {
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (!isCoordinateLikelyInIraq(lat, lng)) {
+          resolve({ ...WEB_LOCATION_MOSUL_FALLBACK, usedFallback: true });
+          return;
+        }
         resolve({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
+          lat,
+          lng,
           usedFallback: false,
         });
       },

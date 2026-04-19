@@ -29,8 +29,9 @@
     "icons:safe": "node scripts/pad-app-icon.mjs",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "eas:build:apk": "eas build --platform android --profile release-apk",
-    "eas:build:apk:preview": "eas build --platform android --profile preview"
+    "eas:build:apk": "npx eas-cli build --platform android --profile release-apk",
+    "eas:build:apk:preview": "npx eas-cli build --platform android --profile preview",
+    "eas:build:android:store": "npx eas-cli build --platform android --profile production"
   },
   "dependencies": {
     "@babel/runtime": "^7.29.2",

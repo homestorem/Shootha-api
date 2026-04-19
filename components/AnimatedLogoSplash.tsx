@@ -1,8 +1,9 @@
 /**
- * شاشة افتتاح — خلفية #228B22، SHOOT'HA في الوسط وشعار عربي في الأسفل (بدون صورة أيقونة).
+ * شاشة افتتاح — خلفية خضراء ونص فقط (بدون صور).
  */
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Animated, useWindowDimensions, Platform } from "react-native";
+import i18n from "@/i18n";
 
 const BG = "#228B22";
 const WHITE = "#FFFFFF";
@@ -15,15 +16,26 @@ type Props = {
 
 export function AnimatedLogoSplash({ onComplete }: Props) {
   const { height } = useWindowDimensions();
+  const [, setI18nTick] = useState(0);
   const opacity = useRef(new Animated.Value(0)).current;
   const finishedRef = useRef(false);
   const lowerThirdH = height / 3;
+  const tagline = i18n.t("splash.tagline");
+  const rtl = i18n.dir() === "rtl";
 
   const safeComplete = useCallback(() => {
     if (finishedRef.current) return;
     finishedRef.current = true;
     onComplete();
   }, [onComplete]);
+
+  useEffect(() => {
+    const onLang = () => setI18nTick((n) => n + 1);
+    i18n.on("languageChanged", onLang);
+    return () => {
+      void i18n.off("languageChanged", onLang);
+    };
+  }, []);
 
   useEffect(() => {
     if (Platform.OS === "web") {
@@ -54,8 +66,11 @@ export function AnimatedLogoSplash({ onComplete }: Props) {
           </Text>
         </View>
         <View style={[styles.lowerThird, { height: lowerThirdH }]}>
-          <Text style={styles.tagline} allowFontScaling={false}>
-            أحجز ملعبك في ثوان
+          <Text
+            style={[styles.tagline, { writingDirection: rtl ? "rtl" : "ltr" }]}
+            allowFontScaling={false}
+          >
+            {tagline}
           </Text>
         </View>
       </Animated.View>
@@ -111,6 +126,5 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 26,
     opacity: 0.95,
-    writingDirection: "rtl",
   },
 });

@@ -33,7 +33,8 @@ async function ensureAndroidDefaultChannel(): Promise<void> {
     const Notifications = await import("expo-notifications");
     await Notifications.setNotificationChannelAsync("default", {
       name: "Default",
-      importance: Notifications.AndroidImportance.HIGH,
+      /** MAX يقترب من «إشعار عالٍ» ويُظهره في الشريط و Heads-up عند السماح من إعدادات الجهاز */
+      importance: Notifications.AndroidImportance.MAX,
       sound: "default",
       enableVibrate: true,
       showBadge: true,

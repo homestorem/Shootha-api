@@ -9,9 +9,8 @@ import React, {
 import { Platform } from "react-native";
 import * as Location from "expo-location";
 import { getBrowserGeolocation } from "@/lib/web-geolocation";
-
-const MOSUL_LAT = 36.34;
-const MOSUL_LON = 43.13;
+import { IRAQ_FALLBACK_LAT, IRAQ_FALLBACK_LON } from "@/lib/location-iraq-bounds";
+import { readSanitizedNativeCoordinates } from "@/lib/native-device-coords";
 
 interface LocationContextValue {
   latitude: number;
@@ -24,8 +23,8 @@ interface LocationContextValue {
 const LocationContext = createContext<LocationContextValue | null>(null);
 
 export function LocationProvider({ children }: { children: ReactNode }) {
-  const [latitude, setLatitude] = useState(MOSUL_LAT);
-  const [longitude, setLongitude] = useState(MOSUL_LON);
+  const [latitude, setLatitude] = useState(IRAQ_FALLBACK_LAT);
+  const [longitude, setLongitude] = useState(IRAQ_FALLBACK_LON);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [isLocating, setIsLocating] = useState(() => Platform.OS === "web");
 
@@ -58,11 +57,9 @@ export function LocationProvider({ children }: { children: ReactNode }) {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === "granted") {
         setHasPermission(true);
-        const loc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        setLatitude(loc.coords.latitude);
-        setLongitude(loc.coords.longitude);
+        const { latitude: lat, longitude: lon } = await readSanitizedNativeCoordinates();
+        setLatitude(lat);
+        setLongitude(lon);
       } else {
         setHasPermission(false);
       }

@@ -23,7 +23,7 @@ import * as Location from "expo-location";
 import { AppBrand } from "@/components/AppBrand";
 import { NotificationsButton } from "@/components/NotificationsButton";
 import { AppBackground } from "@/components/AppBackground";
-import { ModernButton } from "@/components/ModernButton";
+import { HomeGlassMatchButton } from "@/components/HomeGlassMatchButton";
 import { GlassWelcomeCard } from "@/components/GlassWelcomeCard";
 import { useAuth } from "@/context/AuthContext";
 import { useLocation } from "@/context/LocationContext";
@@ -139,17 +139,18 @@ export default function HomeScreen() {
 
         <View style={styles.matchActions}>
           <View style={styles.matchActionsRow}>
-            <ModernButton
+            <HomeGlassMatchButton
+              variant="create"
               title={t("home.randomCreate")}
               icon="shuffle-outline"
-              variant="primary"
+              accessibilityLabel={t("home.randomCreate")}
               onPress={() => pushIfLoggedIn("/random-match-create")}
             />
-            <ModernButton
+            <HomeGlassMatchButton
+              variant="join"
               title={t("home.randomJoin")}
               icon="people-outline"
-              variant="secondary"
-              pulseGlow={false}
+              accessibilityLabel={t("home.randomJoin")}
               onPress={() => pushIfLoggedIn("/random-match-join")}
             />
           </View>
@@ -289,13 +290,18 @@ const styles = StyleSheet.create({
     padding: 6,
   },
   matchActions: {
-    paddingHorizontal: 20,
     marginBottom: 12,
+    backgroundColor: "transparent",
   },
   matchActionsRow: {
     flexDirection: "row",
-    gap: 12,
+    flexWrap: "wrap",
+    justifyContent: "center",
     alignItems: "stretch",
+    gap: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    backgroundColor: "transparent",
   },
   mapSection: {
     marginHorizontal: 10,

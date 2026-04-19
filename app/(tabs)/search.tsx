@@ -20,6 +20,7 @@ import { haversineKm } from "@/lib/distance";
 import { useLocation } from "@/context/LocationContext";
 import SearchMapView from "@/components/SearchMapView";
 import * as Location from "expo-location";
+import { readSanitizedNativeCoordinates } from "@/lib/native-device-coords";
 import { AppBrand } from "@/components/AppBrand";
 import { NotificationsButton } from "@/components/NotificationsButton";
 import { AppBackground } from "@/components/AppBackground";
@@ -43,35 +44,33 @@ export default function SearchScreen() {
   const { colors } = useTheme();
   const { t } = useLang();
   const { latitude, longitude, hasPermission } = useLocation();
-  useEffect(() => {
-  if (Platform.OS === "web") return;
-  (async () => {
-
-    let { status } = await Location.requestForegroundPermissionsAsync();
-
-    if (status !== "granted") return;
-
-    const location = await Location.getCurrentPositionAsync({});
-
-    const geo = await Location.reverseGeocodeAsync({
-      latitude: location.coords.latitude,
-      longitude: location.coords.longitude,
-    });
-
-    if (geo.length > 0) {
-      setCity(geo[0].city || "");
-      setDistrict(geo[0].district || geo[0].subregion || "");
-    }
-
-  })();
-}, []);
   const [city, setCity] = useState("");
-const [district, setDistrict] = useState("");
+  const [district, setDistrict] = useState("");
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
   const [sortBy, setSortBy] = useState("topRated");
   const [showSort, setShowSort] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
+
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    void (async () => {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") return;
+
+      const { latitude: lat, longitude: lon } = await readSanitizedNativeCoordinates();
+
+      const geo = await Location.reverseGeocodeAsync({
+        latitude: lat,
+        longitude: lon,
+      });
+
+      if (geo.length > 0) {
+        setCity(geo[0].city || "");
+        setDistrict(geo[0].district || geo[0].subregion || "");
+      }
+    })();
+  }, []);
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : 0;

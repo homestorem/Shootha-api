@@ -33,7 +33,7 @@ import { normalizeIqPhoneToE164, normalizePhoneFromOtpRouteParam } from "@/lib/p
 import { SMS_OTP_LENGTH } from "@/lib/otpConstants";
 import { OtpCodeInput } from "@/components/OtpCodeInput";
 import RecaptchaWebMount from "@/components/RecaptchaWebMount";
-import { uploadImageAsync, isRemoteImageUrl } from "@/lib/cloudinary-upload";
+import { uploadImageIfConfigured, isRemoteImageUrl } from "@/lib/cloudinary-upload";
 import { useLang } from "@/context/LanguageContext";
 
 function maskPhone(p: string): string {
@@ -120,13 +120,7 @@ export default function RegistrationOtpScreen() {
         const normalizedEmail = String(pending.email ?? "").trim().toLowerCase();
         let profileImageUrl = pending.avatar_url ?? null;
         if (profileImageUrl && !isRemoteImageUrl(profileImageUrl)) {
-          try {
-            profileImageUrl = await uploadImageAsync(profileImageUrl);
-          } catch (uploadErr) {
-            // لا نوقف التسجيل إذا Cloudinary غير مضبوط؛ نكمل الحساب بدون صورة.
-            console.warn("[registration] profile image upload skipped:", uploadErr);
-            profileImageUrl = null;
-          }
+          profileImageUrl = await uploadImageIfConfigured(profileImageUrl);
         }
 
         const shareCodePending = String(pending.shareCode ?? "").trim() || null;

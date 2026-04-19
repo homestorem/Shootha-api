@@ -15,8 +15,9 @@ const OUT = 1024;
 /** حجم الشعار داخل الإطار (~منطقة آمنة Material) */
 const INNER = Math.round(OUT * 0.58);
 
+/** خلفية بيضاء صلبة — شفافية + adaptive أخضر تُظهر «حافة خضراء» حول الأيقونة */
 const buf = await sharp(src)
-  .resize(INNER, INNER, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+  .resize(INNER, INNER, { fit: "contain", background: { r: 255, g: 255, b: 255, alpha: 1 } })
   .png()
   .toBuffer();
 
@@ -30,8 +31,8 @@ await sharp({
   create: {
     width: OUT,
     height: OUT,
-    channels: 4,
-    background: { r: 0, g: 0, b: 0, alpha: 0 },
+    channels: 3,
+    background: { r: 255, g: 255, b: 255 },
   },
 })
   .composite([{ input: buf, left, top }])

@@ -20,6 +20,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PENDING_REG_KEY, useAuth, ensurePlayerFirestoreProfile } from "@/context/AuthContext";
 import {
+  PROFILE_EDIT_PENDING_KEY,
+  profileEditUsedStorageKey,
+  type ProfileEditPendingPayload,
+} from "@/lib/profile-edit-pending";
+import {
   verifyPhoneOtp,
   sendPhoneOtp,
   buildAuthUserFromPhone,
@@ -28,7 +33,7 @@ import { isValidIqMobileE164, normalizePhoneFromOtpRouteParam } from "@/lib/phon
 import { SMS_OTP_LENGTH } from "@/lib/otpConstants";
 import { OtpCodeInput } from "@/components/OtpCodeInput";
 import RecaptchaWebMount from "@/components/RecaptchaWebMount";
-import { uploadImageAsync, isRemoteImageUrl } from "@/lib/cloudinary-upload";
+import { uploadImageIfConfigured, isRemoteImageUrl } from "@/lib/cloudinary-upload";
 import { useLang } from "@/context/LanguageContext";
 
 function paramOne(v: string | string[] | undefined): string {
@@ -46,10 +51,11 @@ export default function VerifyOtpScreen() {
   const insets = useSafeAreaInsets();
   const { t, iconFlipStyle } = useLang();
   const raw = useLocalSearchParams();
-  const { verifyLoginPhoneOtp, signInPlayerSession } = useAuth();
+  const { verifyLoginPhoneOtp, signInPlayerSession, user, updateProfile } = useAuth();
 
   const phoneParam = paramOne(raw.phone).trim();
   const mode = paramOne(raw.mode).trim().toLowerCase();
+  const returnToFromParams = paramOne(raw.returnTo).trim();
 
   const [phoneDisplay, setPhoneDisplay] = useState(() =>
     phoneParam ? normalizePhoneFromOtpRouteParam(phoneParam) : "",
@@ -115,9 +121,55 @@ export default function VerifyOtpScreen() {
       setVerifying(true);
       try {
         const isLogin = mode === "login";
+        const isProfileEdit = mode === "profile_edit";
         if (isLogin) {
           await verifyLoginPhoneOtp(code);
           router.replace("/(tabs)");
+          return;
+        }
+
+        if (isProfileEdit) {
+          if (!user || user.role === "guest" || !user.phone) {
+            Alert.alert(t("auth.common.error"), t("account.loginFirst"));
+            return;
+          }
+          const sessionE164 = normalizePhoneFromOtpRouteParam(user.phone.replace(/^\+/, ""));
+          if (!sessionE164 || sessionE164 !== phoneE164) {
+            Alert.alert(t("auth.common.error"), t("account.otpPhoneMismatch"));
+            return;
+          }
+          const rawPending = await AsyncStorage.getItem(PROFILE_EDIT_PENDING_KEY);
+          if (!rawPending) {
+            Alert.alert(t("auth.common.error"), t("account.profileEditPendingMissing"));
+            return;
+          }
+          let pending: ProfileEditPendingPayload;
+          try {
+            pending = JSON.parse(rawPending) as ProfileEditPendingPayload;
+          } catch {
+            Alert.alert(t("auth.common.error"), t("account.profileEditPendingInvalid"));
+            return;
+          }
+          if (
+            typeof pending.name !== "string" ||
+            typeof pending.dateOfBirth !== "string" ||
+            typeof pending.position !== "string"
+          ) {
+            Alert.alert(t("auth.common.error"), t("account.profileEditPendingInvalid"));
+            return;
+          }
+          await verifyPhoneOtp(phoneE164, code);
+          await updateProfile({
+            name: pending.name,
+            dateOfBirth: pending.dateOfBirth,
+            position: pending.position,
+            profileImage: pending.profileImage ?? undefined,
+          });
+          await AsyncStorage.setItem(profileEditUsedStorageKey(user.id), "1");
+          await AsyncStorage.removeItem(PROFILE_EDIT_PENDING_KEY);
+          Alert.alert(t("common.done"), t("account.saveSuccess"));
+          const dest = (returnToFromParams || "/profile/account") as Href;
+          router.replace(dest);
           return;
         }
 
@@ -136,7 +188,7 @@ export default function VerifyOtpScreen() {
         const shareCodeReg = String(reg.shareCode ?? "").trim() || null;
         let profileImageUrl = ((reg.profileImage as string) || (reg.image as string) || "").trim() || null;
         if (profileImageUrl && !isRemoteImageUrl(profileImageUrl)) {
-          profileImageUrl = await uploadImageAsync(profileImageUrl);
+          profileImageUrl = await uploadImageIfConfigured(profileImageUrl);
         }
 
         if (!reg.name && !data) {
@@ -198,7 +250,17 @@ export default function VerifyOtpScreen() {
         verifyLock.current = false;
       }
     },
-    [otp, mode, verifyLoginPhoneOtp, signInPlayerSession, resolvePhoneE164, t],
+    [
+      otp,
+      mode,
+      verifyLoginPhoneOtp,
+      signInPlayerSession,
+      resolvePhoneE164,
+      t,
+      user,
+      updateProfile,
+      returnToFromParams,
+    ],
   );
 
   const resend = async () => {
@@ -229,6 +291,11 @@ export default function VerifyOtpScreen() {
   const topPad = Platform.OS === "web" ? 24 : insets.top + 12;
 
   const handleBack = () => {
+    if (mode === "profile_edit") {
+      void AsyncStorage.removeItem(PROFILE_EDIT_PENDING_KEY);
+      router.replace(((returnToFromParams || "/profile/account") as string) as Href);
+      return;
+    }
     if (router.canGoBack()) {
       router.back();
       return;
@@ -276,7 +343,7 @@ export default function VerifyOtpScreen() {
           <Text style={styles.title}>{t("auth.otp.title")}</Text>
 
           <Text style={styles.subtitle}>
-            {t("auth.otp.subtitle")}
+            {mode === "profile_edit" ? t("account.verifyOtpForProfileSave") : t("auth.otp.subtitle")}
             {"\n"}
             {masked || t("auth.otp.yourPhone")}
           </Text>

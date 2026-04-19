@@ -26,3 +26,13 @@ export function isBookingSessionEnded(b: Booking, nowMs = Date.now()): boolean {
   const end = bookingSessionEndUtcMs(b);
   return Number.isFinite(end) && nowMs >= end;
 }
+
+/** بعد انتهاء وقت الحجز بدقيقة (مثال 16:00–17:00 → يظهر التقييم من 17:01 فصاعداً). */
+export const POST_MATCH_RATING_GRACE_MS = 60 * 1000;
+
+/** جاهز لعرض نافذة تقييم ما بعد الجلسة (نفس حساب نهاية الجلسة + فترة السماح). */
+export function isBookingReadyForPostMatchRating(b: Booking, nowMs = Date.now()): boolean {
+  if (b.status === "cancelled") return false;
+  const end = bookingSessionEndUtcMs(b);
+  return Number.isFinite(end) && nowMs >= end + POST_MATCH_RATING_GRACE_MS;
+}

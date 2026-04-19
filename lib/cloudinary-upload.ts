@@ -6,6 +6,12 @@ type CloudinaryUploadResponse = {
   secure_url?: string;
 };
 
+export function isCloudinaryConfigured(): boolean {
+  const cloudName = String(process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME ?? "").trim();
+  const uploadPreset = String(process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET ?? "").trim();
+  return Boolean(cloudName && uploadPreset);
+}
+
 function getCloudinaryConfig(): { cloudName: string; uploadPreset: string } {
   const cloudName = String(process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME ?? "").trim();
   const uploadPreset = String(process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET ?? "").trim();
@@ -17,6 +23,15 @@ function getCloudinaryConfig(): { cloudName: string; uploadPreset: string } {
   return { cloudName, uploadPreset };
 }
 
+/** إن لم يُضبط Cloudinary يُرجع `null` دون خطأ — للملفات المحلية يُفضّل إبقاء الصورة السابقة أو تجاهل الرفع. */
+export async function uploadImageIfConfigured(uri: string): Promise<string | null> {
+  const rawUri = String(uri ?? "").trim();
+  if (!rawUri) return null;
+  if (isRemoteImageUrl(rawUri)) return rawUri;
+  if (!isCloudinaryConfigured()) return null;
+  return uploadImageAsync(rawUri);
+}
+
 /**
  * يرفع صورة إلى Cloudinary ويُرجع secure_url فقط.
  */
@@ -24,6 +39,11 @@ export async function uploadImageAsync(uri: string): Promise<string> {
   const rawUri = String(uri ?? "").trim();
   if (!rawUri) throw new Error("مسار الصورة غير صالح");
   if (isRemoteImageUrl(rawUri)) return rawUri;
+  if (!isCloudinaryConfigured()) {
+    throw new Error(
+      "Cloudinary غير مُضبط. أضف EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME و EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET في .env",
+    );
+  }
 
   const { cloudName, uploadPreset } = getCloudinaryConfig();
   const form = new FormData();

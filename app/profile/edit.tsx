@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   View,
   Text,
@@ -35,12 +35,14 @@ export default function EditProfileScreen() {
   const [nameError, setNameError] = useState("");
 
   const [newEmail, setNewEmail] = useState(user?.email ?? "");
-  const [otpSent, setOtpSent] = useState(false);
-  const [otp, setOtp] = useState("");
+  /** Firebase يرسل رابط تحقق بالبريد وليس OTP من 6 أرقام */
+  const [emailLinkSent, setEmailLinkSent] = useState(false);
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [otpError, setOtpError] = useState("");
   const [emailSuccess, setEmailSuccess] = useState("");
+  const lastEmailVerificationSentTo = useRef("");
+  const saveInFlightRef = useRef(false);
 
   const emailChanged = newEmail.trim() !== (user?.email ?? "");
 
@@ -49,36 +51,40 @@ export default function EditProfileScreen() {
       setOtpError(t("fieldRequired"));
       return;
     }
+    const want = newEmail.trim().toLowerCase();
+    if (emailLinkSent && lastEmailVerificationSentTo.current === want) {
+      return;
+    }
     setOtpError("");
     setIsSendingOtp(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       await sendEmailChangeOtp(newEmail.trim());
-      setOtpSent(true);
-      setOtp("");
+      lastEmailVerificationSentTo.current = want;
+      setEmailLinkSent(true);
     } catch (e: unknown) {
-      setOtpError(e instanceof Error ? e.message : "تعذر إرسال رمز التحقق");
+      setOtpError(e instanceof Error ? e.message : "تعذر إرسال رابط التحقق");
     } finally {
       setIsSendingOtp(false);
     }
   };
 
-  const handleVerifyEmail = async () => {
-    if (otp.trim().length !== 6) {
-      setOtpError("أدخل رمز من 6 أرقام");
-      return;
-    }
+  const handleConfirmEmailAfterLink = async () => {
     setOtpError("");
     setIsVerifyingOtp(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      await updateEmail(newEmail.trim(), otp.trim());
-      setOtpSent(false);
-      setOtp("");
+      await updateEmail(newEmail.trim(), "");
+      setEmailLinkSent(false);
+      lastEmailVerificationSentTo.current = "";
       setEmailSuccess("تم تحديث البريد");
       setTimeout(() => setEmailSuccess(""), 4000);
     } catch (e: unknown) {
-      setOtpError(e instanceof Error ? e.message : "رمز التحقق غير صحيح");
+      setOtpError(
+        e instanceof Error
+          ? e.message
+          : "افتح الرابط من البريد على هذا الجهاز ثم أعد المحاولة",
+      );
     } finally {
       setIsVerifyingOtp(false);
     }
@@ -116,6 +122,8 @@ export default function EditProfileScreen() {
 
   const handleSave = async () => {
     if (!validate()) return;
+    if (saveInFlightRef.current || isSaving) return;
+    saveInFlightRef.current = true;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setIsSaving(true);
     setSavedMsg("");
@@ -131,6 +139,7 @@ export default function EditProfileScreen() {
       Alert.alert("خطأ", e?.message ?? "تعذر الحفظ");
     } finally {
       setIsSaving(false);
+      saveInFlightRef.current = false;
     }
   };
 
@@ -231,14 +240,13 @@ export default function EditProfileScreen() {
                   {
                     backgroundColor: colors.inputBg,
                     color: colors.text,
-                    borderColor: otpError && !otpSent ? Colors.destructive : colors.border,
+                    borderColor: otpError && !emailLinkSent ? Colors.destructive : colors.border,
                   },
                 ]}
                 value={newEmail}
                 onChangeText={(v) => {
                   setNewEmail(v);
-                  setOtpSent(false);
-                  setOtp("");
+                  setEmailLinkSent(false);
                   setOtpError("");
                   setEmailSuccess("");
                 }}
@@ -247,9 +255,9 @@ export default function EditProfileScreen() {
                 keyboardType="email-address"
                 autoCapitalize="none"
                 textAlign="right"
-                editable={!otpSent}
+                editable={!emailLinkSent}
               />
-              {emailChanged && !otpSent && (
+              {emailChanged && !emailLinkSent && (
                 <Pressable
                   style={[
                     styles.otpSendBtn,
@@ -267,39 +275,31 @@ export default function EditProfileScreen() {
               )}
             </View>
 
-            {otpSent && (
+            {emailLinkSent && (
               <View style={styles.otpSection}>
-                <TextInput
-                  style={[
-                    styles.otpInput,
-                    {
-                      backgroundColor: colors.inputBg,
-                      color: colors.text,
-                      borderColor: otpError ? Colors.destructive : colors.border,
-                    },
-                  ]}
-                  value={otp}
-                  onChangeText={(v) => { setOtp(v); setOtpError(""); }}
-                  placeholder={t("otpPlaceholder")}
-                  placeholderTextColor={colors.textTertiary}
-                  keyboardType="number-pad"
-                  maxLength={6}
-                  textAlign="center"
-                />
+                <Text style={[styles.emailLinkHint, { color: colors.textSecondary }]}>
+                  أُرسل رابط إلى بريدك. افتح الرابط من هذا الجهاز، ثم اضغط الزر أدناه مرة واحدة لتأكيد
+                  التحديث.
+                </Text>
                 <Pressable
                   style={[styles.verifyBtn, isVerifyingOtp && { opacity: 0.5 }]}
-                  onPress={handleVerifyEmail}
+                  onPress={() => void handleConfirmEmailAfterLink()}
                   disabled={isVerifyingOtp}
                 >
                   {isVerifyingOtp ? (
                     <ActivityIndicator size="small" color="#000" />
                   ) : (
-                    <Text style={styles.verifyBtnText}>{t("verifyOtp")}</Text>
+                    <Text style={styles.verifyBtnText}>تأكيد تحديث البريد</Text>
                   )}
                 </Pressable>
-                <Pressable onPress={() => { setOtpSent(false); setOtpError(""); }}>
+                <Pressable
+                  onPress={() => {
+                    setEmailLinkSent(false);
+                    setOtpError("");
+                  }}
+                >
                   <Text style={[styles.resendText, { color: colors.textTertiary }]}>
-                    تغيير الرقم
+                    تغيير البريد
                   </Text>
                 </Pressable>
               </View>
@@ -409,15 +409,7 @@ const styles = StyleSheet.create({
   },
   otpSendBtnText: { color: "#000", fontSize: 12, fontFamily: "Cairo_700Bold" },
   otpSection: { gap: 10, marginTop: 4 },
-  otpInput: {
-    height: 52,
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    fontSize: 22,
-    fontFamily: "Cairo_700Bold",
-    letterSpacing: 8,
-  },
+  emailLinkHint: { fontSize: 13, fontFamily: "Cairo_400Regular", lineHeight: 20 },
   verifyBtn: {
     backgroundColor: Colors.primary,
     borderRadius: 12,

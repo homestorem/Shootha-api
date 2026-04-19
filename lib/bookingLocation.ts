@@ -3,6 +3,7 @@
  */
 import { Platform } from "react-native";
 import * as Location from "expo-location";
+import { readSanitizedNativeCoordinates } from "@/lib/native-device-coords";
 
 export async function requireLocationForBooking(): Promise<{ lat: number; lon: number }> {
   if (Platform.OS === "web") {
@@ -24,10 +25,8 @@ export async function requireLocationForBooking(): Promise<{ lat: number; lon: n
   }
 
   try {
-    const loc = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced,
-    });
-    return { lat: loc.coords.latitude, lon: loc.coords.longitude };
+    const { latitude, longitude } = await readSanitizedNativeCoordinates();
+    return { lat: latitude, lon: longitude };
   } catch {
     throw new Error("تعذر تحديد موقعك الحالي. تأكد من تشغيل GPS ثم أعد المحاولة.");
   }
